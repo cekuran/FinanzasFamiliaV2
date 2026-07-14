@@ -1,0 +1,6 @@
+stitch_gestor_financiero_integral/**
+*.webp
+*.stackdump
+appsscript.json
+.mcp.json
+.clasp.json
