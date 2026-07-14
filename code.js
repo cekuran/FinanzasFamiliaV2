@@ -33,7 +33,30 @@ const SEMILLA = {
 };
 
 // ───────── Helpers de sesión y ss ─────────
-function ss_() { return SpreadsheetApp.getActive(); }
+const PROP_SHEET_ID = 'SHEET_ID';
+
+function ss_() {
+  const props = PropertiesService.getUserProperties();
+  let id = props.getProperty(PROP_SHEET_ID);
+  if (id) {
+    try { return SpreadsheetApp.openById(id); }
+    catch (e) { /* id inválido, recrear */ }
+  }
+  // Primera vez (o id corrupto): crear spreadsheet propio para el usuario
+  const ss = SpreadsheetApp.create('Emerald Ledger · ' + email_());
+  props.setProperty(PROP_SHEET_ID, ss.getId());
+  // Mover la hoja "Hoja 1" por defecto al final, queda fuera de la vista
+  const porDefecto = ss.getSheets()[0];
+  if (porDefecto && ss.getSheets().length === 1) ss.renameSheet(porDefecto, '_log');
+  return ss;
+}
+
+function resetSheet() {
+  PropertiesService.getUserProperties().deleteProperty(PROP_SHEET_ID);
+  ss_();
+  return 'ok';
+}
+
 function email_() {
   const e = Session.getActiveUser().getEmail();
   return e || ('anon-' + Session.getTemporaryActiveUserKeys().join('')) || 'anon';
