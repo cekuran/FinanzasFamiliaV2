@@ -47,7 +47,7 @@ function ss_() {
   props.setProperty(PROP_SHEET_ID, ss.getId());
   // Mover la hoja "Hoja 1" por defecto al final, queda fuera de la vista
   const porDefecto = ss.getSheets()[0];
-  if (porDefecto && ss.getSheets().length === 1) ss.renameSheet(porDefecto, '_log');
+  if (porDefecto && ss.getSheets().length === 1) porDefecto.setName('_log');
   return ss;
 }
 
