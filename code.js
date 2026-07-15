@@ -1,5 +1,5 @@
 /** @OnlyCurrentDoc */
-// Emerald Ledger — backend Google Apps Script (Sheets + WebApp).
+// Finanzas Familia — backend Google Apps Script (Sheets + WebApp).
 // Multi-usuario: cada fila lleva owner_email; CRUD siempre filtra por usuario activo.
 
 const SCHEMA = {
@@ -43,7 +43,7 @@ function ss_() {
     catch (e) { /* id inválido, recrear */ }
   }
   // Primera vez (o id corrupto): crear spreadsheet propio para el usuario
-  const ss = SpreadsheetApp.create('Emerald Ledger · ' + email_());
+  const ss = SpreadsheetApp.create('Finanzas Familia · ' + email_());
   props.setProperty(PROP_SHEET_ID, ss.getId());
   // Mover la hoja "Hoja 1" por defecto al final, queda fuera de la vista
   const porDefecto = ss.getSheets()[0];
@@ -141,7 +141,7 @@ function doGet() {
   sembrar(owner);
   generarRecurrentesPendientes_(owner, new Date());
   return HtmlService.createTemplateFromFile('Index').evaluate()
-    .setTitle('Emerald Ledger')
+    .setTitle('Finanzas Familia')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
@@ -152,6 +152,7 @@ function bootstrap() {
   generarRecurrentesPendientes_(owner, new Date());
   return {
     sesion: { email: owner },
+    version: PropertiesService.getScriptProperties().getProperty('VERSION') || '',
     cuentas: obtenerCuentas(),
     categorias: obtenerCategorias(),
     transacciones: obtenerTransacciones({}),
