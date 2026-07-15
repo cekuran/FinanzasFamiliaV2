@@ -386,31 +386,36 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
   const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner);
   let cambios = false;
   recs.forEach(r => {
-    const p = JSON.parse(r.plantilla);
-    const ultima = r.ultima_generacion ? new Date(r.ultima_generacion) : null;
-    const inicio = new Date(p.inicio);
-    let cursor = ultima && ultima > inicio ? new Date(ultima) : new Date(inicio);
-    cursor.setDate(Number(p.dia_mes || 1));
-    while (cursor <= fechaCorte) {
-      const isoCursor = iso_(cursor);
-      const ya = txs.some(t => t.recurrente_id === r.id && String(t.fecha) === isoCursor);
-      if (!ya) {
-        txs.push({
-          owner_email: owner, id: uid_('tx'),
-          fecha: isoCursor, tipo: p.tipo, importe: Number(p.importe), moneda: 'EUR',
-          cuenta_id: p.cuenta_id,
-          cuenta_destino_id: p.cuenta_destino_id || '',
-          importe_destino: p.importe_destino || '',
-          ratio_conversion: p.ratio_conversion || '',
-          categoria_id: p.categoria_id || '', descripcion: p.descripcion || '',
-          estado: 'pendiente', recurrente_id: r.id, fecha_pago: '', conciliada_con: '', notas: '',
-          fecha_creacion: isoAhora_()
-        });
-        cambios = true;
+    try {
+      const p = JSON.parse(r.plantilla);
+      const ultima = r.ultima_generacion ? new Date(r.ultima_generacion) : null;
+      const inicio = new Date(p.inicio);
+      let cursor = ultima && ultima > inicio ? new Date(ultima) : new Date(inicio);
+      cursor.setDate(Number(p.dia_mes || 1));
+      while (cursor <= fechaCorte) {
+        const isoCursor = iso_(cursor);
+        const ya = txs.some(t => t.recurrente_id === r.id && String(t.fecha) === isoCursor);
+        if (!ya) {
+          txs.push({
+            owner_email: owner, id: uid_('tx'),
+            fecha: isoCursor, tipo: p.tipo, importe: Number(p.importe), moneda: 'EUR',
+            cuenta_id: p.cuenta_id,
+            cuenta_destino_id: p.cuenta_destino_id || '',
+            importe_destino: p.importe_destino || '',
+            ratio_conversion: p.ratio_conversion || '',
+            categoria_id: p.categoria_id || '', descripcion: p.descripcion || '',
+            estado: 'pendiente', recurrente_id: r.id, fecha_pago: '', conciliada_con: '', notas: '',
+            fecha_creacion: isoAhora_()
+          });
+          cambios = true;
+        }
+        cursor = siguienteCursor_(cursor, p.periodicidad);
       }
-      cursor = siguienteCursor_(cursor, p.periodicidad);
+      r.ultima_generacion = iso_(fechaCorte);
+    } catch (e) {
+      // ponytail: plantilla corrupta no debe romper el bootstrap
+      Logger.log('plantilla corrupta ' + r.id + ': ' + e.message);
     }
-    r.ultima_generacion = iso_(fechaCorte);
   });
   if (cambios) escribirHoja('Transacciones', txs);
   escribirHoja('Recurrentes', leerHoja('Recurrentes').map(r => {

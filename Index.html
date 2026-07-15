@@ -1397,7 +1397,9 @@ function poblarFiltros() {
 
 // === Boot ===
 async function recargar() {
-  Estado.bootstrap = await call('bootstrap');
+  const fresh = await call('bootstrap');
+  if (!fresh) { toast('No se pudo recargar'); return; }
+  Estado.bootstrap = fresh;
   poblarFiltros();
   if (location.hash.startsWith('#/')) go(location.hash.slice(2));
   else renderDashboard();
@@ -1419,7 +1421,7 @@ window.addEventListener('hashchange', () => {
 
 (async function init() {
   try {
-    Estado.bootstrap = await call('bootstrap');
+    Estado.bootstrap = (await call('bootstrap')) || {};
     const email = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.email) || '?';
     const v = Estado.bootstrap.version;
     $('#sidebarFoot').textContent = (v ? 'v' + v + ' · ' : '') + 'Finanzas Familia';
