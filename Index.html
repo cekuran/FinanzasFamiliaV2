@@ -555,7 +555,7 @@
           </div>
           <button class="btn btn-primary" id="pptoSave" style="width: 100%;">Guardar importe</button>
           <div style="margin-top: var(--s-5); border-top: 1px solid var(--surface-container); padding-top: var(--s-4);">
-            <div class="label-md" style="color: var(--on-surface-variant); margin-bottom: var(--s-2);">Asignados este mes</div>
+            <div class="label-md" style="color: var(--on-surface-variant); margin-bottom: var(--s-2);">Asignados</div>
             <div id="pptoList" style="display: flex; flex-direction: column; gap: 8px;"></div>
           </div>
         </div>
@@ -1103,12 +1103,11 @@ function renderCategorias() {
 function presClave(anio, mes, cat) { return anio + '-' + mes + '-' + cat; }
 async function renderPresupuesto() {
   const { anio, mes } = Estado.pres;
-  $('#presPeriodo').textContent = 'Presupuesto mensual para ' + new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  $('#presPeriodo').textContent = 'Mismo presupuesto cada mes · gastos de ' + new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   $('#presMesLabel').textContent = new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
   const resumen = Estado.bootstrap.resumen || {};
   const totalGastos = Number(resumen.gastos || 0);
   const totalEsperado = Estado.bootstrap.presupuestos
-    .filter(p => Number(p.anio) === anio && Number(p.mes) === mes)
     .reduce((s, p) => s + Number(p.importe_esperado || 0), 0);
   const pct = totalEsperado > 0 ? Math.min(100, Math.round((totalGastos / totalEsperado) * 100)) : 0;
   $('#presGasto').textContent = fmtMoneda(totalGastos);
@@ -1140,14 +1139,14 @@ async function renderPresupuesto() {
   }).join('');
 
   $('#pptoCat').innerHTML = cats.map(c => `<option value="${c.id}">${escape(c.nombre)}</option>`).join('');
-  const asig = Estado.bootstrap.presupuestos.filter(p => Number(p.anio) === anio && Number(p.mes) === mes);
+  const asig = Estado.bootstrap.presupuestos;
   $('#pptoList').innerHTML = asig.length ? asig.map(p => {
     const c = cats.find(x => x.id === p.categoria_id);
     return `<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--surface-container-low); border-radius: var(--r-md);">
       <span>${escape(c ? c.nombre : '—')}</span>
       <span class="data-tabular">${fmtMoneda(p.importe_esperado)} <button class="icon-btn" data-ppto-del="${p.id}" style="margin-left: 8px;">${ICONOS.delete}</button></span>
     </div>`;
-  }).join('') : '<div class="body-sm" style="color: var(--on-surface-variant);">Sin importes asignados este mes.</div>';
+  }).join('') : '<div class="body-sm" style="color: var(--on-surface-variant);">Sin importes asignados.</div>';
   $$('[data-ppto-del]').forEach(b => b.addEventListener('click', async () => {
     await call('eliminarPresupuesto', b.dataset.pptoDel);
     await recargar(); toast('Eliminado');
@@ -1167,7 +1166,7 @@ $('#pptoSave').addEventListener('click', async () => {
   const imp = Number($('#pptoImporte').value || 0);
   if (!cat) return;
   try {
-    Estado.bootstrap.presupuestos = await call('guardarPresupuesto', { anio: Estado.pres.anio, mes: Estado.pres.mes, categoria_id: cat, importe_esperado: imp });
+    Estado.bootstrap.presupuestos = await call('guardarPresupuesto', { categoria_id: cat, importe_esperado: imp });
     $('#pptoImporte').value = '';
     renderPresupuesto();
     toast('Presupuesto guardado');

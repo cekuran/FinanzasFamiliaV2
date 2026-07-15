@@ -426,24 +426,24 @@ function generarRecurrentesPendientes(fechaCorte) {
 }
 
 // ───────── Presupuestos ─────────
-function obtenerPresupuestos(anio, mes) {
+// ponytail: one budget per category, same every month
+function obtenerPresupuestos() {
   const owner = email_();
-  let ps = leerHoja('Presupuestos').filter(p => p.owner_email === owner);
-  if (anio) ps = ps.filter(p => Number(p.anio) === Number(anio));
-  if (mes) ps = ps.filter(p => Number(p.mes) === Number(mes));
-  return ps;
+  const all = leerHoja('Presupuestos').filter(p => p.owner_email === owner);
+  const seen = new Map();
+  all.forEach(p => seen.set(p.categoria_id, p));
+  return [...seen.values()];
 }
 
 function guardarPresupuesto(p) {
   const owner = email_();
-  if (!p.anio || !p.mes) throw new Error('Año y mes requeridos');
+  if (!p.categoria_id) throw new Error('Categoría requerida');
   const fila = {
     owner_email: owner, id: p.id || uid_('ppto'),
-    anio: Number(p.anio), mes: Number(p.mes),
-    categoria_id: p.categoria_id || '', importe_esperado: Number(p.importe_esperado || 0)
+    categoria_id: p.categoria_id, importe_esperado: Number(p.importe_esperado || 0)
   };
   upsertFila('Presupuestos', fila);
-  return obtenerPresupuestos(p.anio, p.mes);
+  return obtenerPresupuestos();
 }
 
 function eliminarPresupuesto(id) {
@@ -530,7 +530,7 @@ function obtenerCategoriasResumen(anio, mes) {
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
   const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && t.tipo === 'gasto');
-  const ps = leerHoja('Presupuestos').filter(p => p.owner_email === owner && Number(p.anio) === Number(a) && Number(p.mes) === Number(m));
+  const ps = leerHoja('Presupuestos').filter(p => p.owner_email === owner);
   const cats = obtenerCategorias();
   return cats.map(c => {
     const esperado = ps.filter(p => p.categoria_id === c.id).reduce((s, p) => s + Number(p.importe_esperado || 0), 0);
