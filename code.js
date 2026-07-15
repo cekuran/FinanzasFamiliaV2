@@ -83,6 +83,17 @@ function asegurarEsquema() {
   HOJAS.forEach(asegurarHoja);
 }
 
+// Sheets convierte automáticamente las fechas en formato texto ('yyyy-MM-dd')
+// a objetos Date. Al leer las normalizamos de vuelta a string para que
+// String(fecha).slice(0,7) y las comparaciones de fechas funcionen igual
+// que cuando se escribieron.
+function normalizarValor_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v)) {
+    return Utilities.formatDate(v, ss_().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+  }
+  return v;
+}
+
 function leerHoja(nombre) {
   asegurarHoja(nombre);
   const h = ss_().getSheetByName(nombre);
@@ -91,7 +102,7 @@ function leerHoja(nombre) {
   const cab = valores[0];
   return valores.slice(1).map(fila => {
     const o = {};
-    cab.forEach((k, i) => (o[k] = fila[i]));
+    cab.forEach((k, i) => (o[k] = normalizarValor_(fila[i])));
     return o;
   });
 }
@@ -533,9 +544,13 @@ function obtenerResumen(anio, mes) {
   // Próximos recurrentes
   const recs = leerHoja('Recurrentes').filter(r => r.owner_email === owner && r.activa);
   const proximos = recs.map(r => {
-    const p = JSON.parse(r.plantilla);
-    return { id: r.id, descripcion: p.descripcion, importe: Number(p.importe), dia_mes: p.dia_mes, periodicidad: p.periodicidad };
-  });
+    try {
+      const p = JSON.parse(r.plantilla);
+      return { id: r.id, descripcion: p.descripcion, importe: Number(p.importe), dia_mes: p.dia_mes, periodicidad: p.periodicidad };
+    } catch (e) {
+      return null;
+    }
+  }).filter(Boolean);
   return { anio: a, mes: m, ingresos, gastos, neto: ingresos - gastos, pendiente, vencido, evol, proximos };
 }
 
