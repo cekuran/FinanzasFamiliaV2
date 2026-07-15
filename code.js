@@ -183,35 +183,44 @@ function obtenerCuentas() {
   const tipos = leerHoja('TiposCambio').filter(t => t.owner_email === owner);
 
   return cuentas.map(c => {
-    const saldosPorMes = {}; // 'YYYY-MM' -> acumulado
-    let base = Number(c.saldo_inicial || 0);
-    txs.filter(t => t.cuenta_id === c.id || t.cuenta_destino_id === c.id)
-      .sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)))
-      .forEach(t => {
-        const mes = String(t.fecha).slice(0, 7);
-        if (t.cuenta_id === c.id) {
-          const signo = t.tipo === 'ingreso' ? 1 : (t.tipo === 'gasto' ? -1 : (t.tipo === 'transferencia' ? -1 : 0));
-          base += signo * Number(t.importe || 0);
-        } else if (t.tipo === 'transferencia') {
-          // destino de transferencia: entra el importe destino (si hay conversión) o el mismo importe
-          const importe = Number(t.importe_destino || t.importe || 0);
-          base += importe;
-        }
-        saldosPorMes[mes] = base;
-      });
+    const saldoInicial = Number(c.saldo_inicial || 0);
+    const movs = txs
+      .filter(t => t.cuenta_id === c.id || t.cuenta_destino_id === c.id)
+      .map(t => ({ mes: String(t.fecha).slice(0, 7), delta: deltaCuenta_(t, c.id) }));
+
+    // Saldo total actual = saldo inicial + todos los movimientos
+    const saldoActual = saldoInicial + movs.reduce((s, m) => s + m.delta, 0);
+
+    // Evolución: saldo acumulado hasta el fin de cada uno de los últimos 12 meses
     const hoy = new Date();
     const evolucion = [];
     for (let i = 11; i >= 0; i--) {
       const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
       const k = Utilities.formatDate(d, ss_().getSpreadsheetTimeZone(), 'yyyy-MM');
-      evolucion.push({ mes: k, saldo: saldosPorMes[k] != null ? saldosPorMes[k] : base });
+      const saldo = saldoInicial + movs
+        .filter(m => m.mes <= k)
+        .reduce((s, m) => s + m.delta, 0);
+      evolucion.push({ mes: k, saldo: saldo });
     }
     return {
       id: c.id, nombre: c.nombre, tipo: c.tipo, moneda: c.moneda, icono: c.icono,
-      saldo_inicial: Number(c.saldo_inicial || 0),
-      saldo: base, evolucion: evolucion
+      saldo_inicial: saldoInicial,
+      saldo: saldoActual, evolucion: evolucion
     };
   });
+}
+
+// Variación de saldo que aporta una transacción a una cuenta concreta.
+function deltaCuenta_(t, cuentaId) {
+  if (t.cuenta_id === cuentaId) {
+    if (t.tipo === 'ingreso') return Number(t.importe || 0);
+    if (t.tipo === 'gasto' || t.tipo === 'transferencia') return -Number(t.importe || 0);
+    return 0;
+  }
+  if (t.cuenta_destino_id === cuentaId && t.tipo === 'transferencia') {
+    return Number(t.importe_destino || t.importe || 0);
+  }
+  return 0;
 }
 
 function guardarCuenta(cuenta) {
