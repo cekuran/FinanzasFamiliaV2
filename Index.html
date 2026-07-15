@@ -858,6 +858,22 @@ async function call(fn, ...args) {
   });
 }
 
+// Garantiza que el bootstrap siempre tenga las colecciones esperadas como arrays,
+// evitando errores del tipo "Cannot read properties of undefined (reading 'map')".
+function normalizarBootstrap(b) {
+  b = b || {};
+  return {
+    cuentas: Array.isArray(b.cuentas) ? b.cuentas : [],
+    categorias: Array.isArray(b.categorias) ? b.categorias : [],
+    transacciones: Array.isArray(b.transacciones) ? b.transacciones : [],
+    recurrentes: Array.isArray(b.recurrentes) ? b.recurrentes : [],
+    presupuestos: Array.isArray(b.presupuestos) ? b.presupuestos : [],
+    resumen: b.resumen || null,
+    sesion: b.sesion || null,
+    version: b.version || ''
+  };
+}
+
 // === Rutas ===
 const ROUTES = ['dashboard', 'cuentas', 'movimientos', 'presupuesto', 'recurrentes', 'conciliar', 'categorias'];
 function go(route) {
@@ -1399,7 +1415,7 @@ function poblarFiltros() {
 async function recargar() {
   const fresh = await call('bootstrap');
   if (!fresh) { toast('No se pudo recargar'); return; }
-  Estado.bootstrap = fresh;
+  Estado.bootstrap = normalizarBootstrap(fresh);
   poblarFiltros();
   if (location.hash.startsWith('#/')) go(location.hash.slice(2));
   else renderDashboard();
@@ -1421,7 +1437,7 @@ window.addEventListener('hashchange', () => {
 
 (async function init() {
   try {
-    Estado.bootstrap = (await call('bootstrap')) || {};
+    Estado.bootstrap = normalizarBootstrap(await call('bootstrap'));
     const email = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.email) || '?';
     const v = Estado.bootstrap.version;
     $('#sidebarFoot').textContent = (v ? 'v' + v + ' · ' : '') + 'Finanzas Familia';
