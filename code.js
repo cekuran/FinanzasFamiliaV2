@@ -321,7 +321,8 @@ function guardarTransaccion(tx) {
     throw new Error('Falta importe destino o ratio de conversión');
   }
   upsertFila('Transacciones', fila);
-  if (tx.recurrente_plantilla) upsertRecurrenteBase_(owner, tx);
+  if (tx.recurrente_plantilla) fila.recurrente_id = upsertRecurrenteBase_(owner, tx);
+  if (fila.recurrente_id) upsertFila('Transacciones', fila);
   return fila;
 }
 
@@ -362,18 +363,22 @@ function eliminarRecurrente(id) {
 function upsertRecurrenteBase_(owner, tx) {
   const plantilla = {
     tipo: tx.tipo, importe: Number(tx.importe), cuenta_id: tx.cuenta_id,
+    cuenta_destino_id: tx.cuenta_destino_id || '',
+    importe_destino: tx.importe_destino ? Number(tx.importe_destino) : '',
+    ratio_conversion: tx.ratio_conversion ? Number(tx.ratio_conversion) : '',
     categoria_id: tx.categoria_id || '', descripcion: tx.descripcion || '',
     periodicidad: tx.recurrente_periodicidad || 'mensual', dia_mes: tx.recurrente_dia || Number(String(tx.fecha).slice(8, 10)),
     inicio: iso_(tx.fecha), fin: tx.recurrente_fin || ''
   };
+  const id = uid_('rec');
   const fila = {
-    owner_email: owner, id: uid_('rec'),
+    owner_email: owner, id,
     plantilla: JSON.stringify(plantilla), ultima_generacion: iso_(tx.fecha), activa: true
   };
-  // append sin duplicar
   const datos = leerHoja('Recurrentes');
   datos.push(fila);
   escribirHoja('Recurrentes', datos);
+  return id;
 }
 
 function generarRecurrentesPendientes_(owner, fechaCorte) {
@@ -393,7 +398,10 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
         txs.push({
           owner_email: owner, id: uid_('tx'),
           fecha: isoCursor, tipo: p.tipo, importe: Number(p.importe), moneda: 'EUR',
-          cuenta_id: p.cuenta_id, cuenta_destino_id: '', importe_destino: '', ratio_conversion: '',
+          cuenta_id: p.cuenta_id,
+          cuenta_destino_id: p.cuenta_destino_id || '',
+          importe_destino: p.importe_destino || '',
+          ratio_conversion: p.ratio_conversion || '',
           categoria_id: p.categoria_id || '', descripcion: p.descripcion || '',
           estado: 'pendiente', recurrente_id: r.id, fecha_pago: '', conciliada_con: '', notas: '',
           fecha_creacion: isoAhora_()

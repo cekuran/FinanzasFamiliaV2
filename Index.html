@@ -679,6 +679,23 @@
       </select>
     </div>
     <div class="field"><label>Notas</label><textarea class="textarea" name="notas" id="txNotas"></textarea></div>
+    <div class="field" style="display: flex; justify-content: space-between; align-items: center;">
+      <label for="txRecurrenteSwitch" style="margin: 0;">Hacer recurrente</label>
+      <label class="switch"><input type="checkbox" id="txRecurrenteSwitch"><span class="track"><span class="knob"></span></span></label>
+    </div>
+    <div id="wrapRecurrente" style="display: none; flex-direction: column; gap: var(--s-3);">
+      <div class="field-row">
+        <div class="field"><label>Periodicidad</label>
+          <select class="select" id="txRecPeriodo">
+            <option value="mensual">Mensual</option>
+            <option value="semanal">Semanal</option>
+            <option value="diario">Diario</option>
+            <option value="anual">Anual</option>
+          </select>
+        </div>
+        <div class="field"><label>Día del mes</label><input class="input" type="number" min="1" max="31" id="txRecDia" value="1"></div>
+      </div>
+    </div>
     <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
       <button type="button" class="btn btn-secondary" id="txCancel" style="flex: 1;">Cancelar</button>
       <button type="submit" class="btn btn-primary" style="flex: 2;">Guardar</button>
@@ -819,7 +836,8 @@ const Estado = {
   filtros: { cuenta_id: '', tipo: '', desde: '', hasta: '', q: '' },
   pres: { anio: new Date().getFullYear(), mes: new Date().getMonth() + 1, asignado: {} },
   txTipo: 'gasto',
-  editing: null
+  editing: null,
+  recPlantillaId: ''
 };
 
 const $$ = (sel, ctx = document) => Array.from((ctx || document).querySelectorAll(sel));
@@ -1201,6 +1219,18 @@ function openTx(id) {
   $('#txRatio').value = f.ratio_conversion || '';
   $('#txEstado').value = f.estado || 'pendiente';
   $('#txNotas').value = f.notas || '';
+  Estado.recPlantillaId = '';
+  if (f.recurrente_id) {
+    const rec = Estado.bootstrap.recurrentes.find(r => r.id === f.recurrente_id);
+    if (rec) {
+      const p = JSON.parse(rec.plantilla);
+      Estado.recPlantillaId = rec.id;
+      $('#txRecPeriodo').value = p.periodicidad || 'mensual';
+      $('#txRecDia').value = p.dia_mes || Number((f.fecha || '').slice(8, 10)) || 1;
+    }
+  }
+  $('#txRecurrenteSwitch').checked = !!Estado.recPlantillaId;
+  $('#wrapRecurrente').style.display = $('#txRecurrenteSwitch').checked ? 'flex' : 'none';
   openSheet('sheetTx');
 }
 function setTipoTx(tipo) {
@@ -1212,10 +1242,14 @@ function setTipoTx(tipo) {
   poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (tipo === 'ingreso' ? 'ingreso' : 'gasto')), '', c => c.nombre);
 }
 $$('[data-tx-tipo]').forEach(b => b.addEventListener('click', () => setTipoTx(b.dataset.txTipo)));
+$('#txRecurrenteSwitch').addEventListener('change', e => {
+  $('#wrapRecurrente').style.display = e.target.checked ? 'flex' : 'none';
+});
 $('#txCancel').addEventListener('click', closeAllSheets);
 $('#formTx').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
+  const recurrenteOn = $('#txRecurrenteSwitch').checked;
   const tx = {
     id: f.get('id') || '',
     tipo: Estado.txTipo,
@@ -1230,8 +1264,18 @@ $('#formTx').addEventListener('submit', async (e) => {
     estado: f.get('estado'),
     notas: f.get('notas') || ''
   };
+  if (recurrenteOn) {
+    tx.recurrente_plantilla = true;
+    tx.recurrente_periodicidad = $('#txRecPeriodo').value;
+    tx.recurrente_dia = Number($('#txRecDia').value || 1);
+  } else {
+    tx.recurrente_id = '';
+  }
   try {
     await call('guardarTransaccion', tx);
+    if (Estado.recPlantillaId && !recurrenteOn) {
+      await call('eliminarRecurrente', Estado.recPlantillaId);
+    }
     closeAllSheets();
     await recargar();
     toast('Transacción guardada');
