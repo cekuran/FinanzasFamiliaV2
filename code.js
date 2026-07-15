@@ -36,7 +36,7 @@ const SEMILLA = {
 const PROP_SHEET_ID = 'SHEET_ID';
 
 function ss_() {
-  const props = PropertiesService.getUserProperties();
+  const props = PropertiesService.getScriptProperties();
   let id = props.getProperty(PROP_SHEET_ID);
   if (id) {
     try { return SpreadsheetApp.openById(id); }
@@ -52,7 +52,7 @@ function ss_() {
 }
 
 function resetSheet() {
-  PropertiesService.getUserProperties().deleteProperty(PROP_SHEET_ID);
+  PropertiesService.getScriptProperties().deleteProperty(PROP_SHEET_ID);
   ss_();
   return 'ok';
 }
