@@ -280,6 +280,7 @@ function guardarCuenta(cuenta) {
   if (cuenta.parent_id) {
     parent = todas.find(c => c.owner_email === owner && c.id === cuenta.parent_id);
     if (!parent) throw new Error('Cuenta padre no encontrada');
+    if (parent.parent_id) throw new Error('Una subcuenta no puede tener subcuentas');
     // Subcuentas heredan tipo y moneda del padre; ignoramos lo que mande el cliente.
     cuenta.tipo = parent.tipo;
     cuenta.moneda = parent.moneda;
@@ -312,14 +313,20 @@ function eliminarCuenta(id) {
   const todas = leerHoja('Cuentas').filter(c => c.owner_email === owner);
   const cuenta = todas.find(c => c.id === id);
   if (!cuenta) throw new Error('Cuenta no encontrada');
-  const tieneSubs = todas.some(c => c.parent_id === id);
-  if (tieneSubs) throw new Error('La cuenta tiene subcuentas. Elimínalas primero.');
   const esSub = !!cuenta.parent_id;
+  // ponytail: el chequeo de "tiene subcuentas" solo aplica a top-level.
+  // Las subcuentas no admiten anidamiento en el modelo, así que el check
+  // nunca debería disparar para ellas (si dispara, hay corrupción de datos,
+  // pero bloqueamos igual para que el usuario vea el problema).
+  if (!esSub) {
+    const tieneSubs = todas.some(c => c.parent_id === id);
+    if (tieneSubs) throw new Error('La cuenta tiene subcuentas. Elimínalas primero.');
+  }
   const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && (
     (t.cuenta_id === id || t.cuenta_destino_id === id) ||
     (esSub && t.subcuenta_id === id)
   ));
-  if (txs.length) throw new Error('La cuenta tiene ' + txs.length + ' movimientos. Reasígnalos o elimínalos primero.');
+  if (txs.length) throw new Error((esSub ? 'La subcuenta' : 'La cuenta') + ' tiene ' + txs.length + ' movimientos. Reasígnalos o elimínalos primero.');
   eliminarFila('Cuentas', owner, id);
   return obtenerCuentas();
 }
