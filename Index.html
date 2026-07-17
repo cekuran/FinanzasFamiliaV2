@@ -987,13 +987,20 @@ function txRow(t) {
   const cat = Estado.bootstrap.categorias.find(c => c.id === t.categoria_id);
   const cta = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_id);
   const sub = (cta && t.subcuenta_id) ? (cta.subcuentas || []).find(s => s.id === t.subcuenta_id) : null;
-  const sign = t.tipo === 'transferencia' ? '' : (t.tipo === 'ingreso' ? '+' : '-');
-  const cls = t.tipo === 'transferencia' ? 'neutral' : (t.tipo === 'ingreso' ? 'pos' : 'neg');
+  const ctaD = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_destino_id);
+  const subD = (ctaD && t.subcuenta_destino_id) ? (ctaD.subcuentas || []).find(s => s.id === t.subcuenta_destino_id) : null;
+  const isTransfer = t.tipo === 'transferencia';
+  const sign = isTransfer ? '' : (t.tipo === 'ingreso' ? '+' : '-');
+  const cls = isTransfer ? 'neutral' : (t.tipo === 'ingreso' ? 'pos' : 'neg');
+  const origen = escape(cta ? cta.nombre : '—') + (sub ? ' · ' + escape(sub.nombre) : '');
+  const detalle = isTransfer
+    ? origen + ' → ' + escape(ctaD ? ctaD.nombre : '—') + (subD ? ' · ' + escape(subD.nombre) : '')
+    : origen + ' · ' + escape(cat ? cat.nombre : '—');
   return `<div class="tx-row">
     <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat ? cat.nombre : 'Otros')}</div>
     <div class="tx-main">
       <div class="tx-title">${escape(t.descripcion || (cat ? cat.nombre : 'Sin descripción'))}</div>
-      <div class="tx-sub">${escape(t.fecha || '')} · ${escape(cta ? cta.nombre : '')}${sub ? ' · ' + escape(sub.nombre) : ''} · ${escape(cat ? cat.nombre : '')}</div>
+      <div class="tx-sub">${escape(t.fecha || '')} · ${detalle}</div>
     </div>
     <div class="tx-amount ${cls}">${sign}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</div>
   </div>`;
@@ -1053,7 +1060,7 @@ function renderMovimientos() {
   const f = Estado.filtros;
   let lista = Estado.bootstrap.transacciones.slice();
   if (f.cuenta_id) lista = lista.filter(t => t.cuenta_id === f.cuenta_id || t.cuenta_destino_id === f.cuenta_id);
-  if (f.subcuenta_id) lista = lista.filter(t => t.subcuenta_id === f.subcuenta_id);
+  if (f.subcuenta_id) lista = lista.filter(t => t.subcuenta_id === f.subcuenta_id || t.subcuenta_destino_id === f.subcuenta_id);
   if (f.tipo) lista = lista.filter(t => t.tipo === f.tipo);
   if (f.desde) lista = lista.filter(t => String(t.fecha) >= f.desde);
   if (f.hasta) lista = lista.filter(t => String(t.fecha) <= f.hasta);
@@ -1066,16 +1073,23 @@ function renderMovimientos() {
     const cat = Estado.bootstrap.categorias.find(c => c.id === t.categoria_id);
     const cta = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_id);
     const sub = (cta && t.subcuenta_id) ? (cta.subcuentas || []).find(s => s.id === t.subcuenta_id) : null;
-    const sign = t.tipo === 'ingreso' ? 1 : -1;
+    const ctaD = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_destino_id);
+    const subD = (ctaD && t.subcuenta_destino_id) ? (ctaD.subcuentas || []).find(s => s.id === t.subcuenta_destino_id) : null;
+    const isTransfer = t.tipo === 'transferencia';
+    const sign = isTransfer ? '' : (t.tipo === 'ingreso' ? '+' : '-');
+    const color = isTransfer ? 'var(--on-surface-variant)' : (t.tipo === 'ingreso' ? 'var(--primary)' : 'var(--error)');
+    const cuentaHtml = isTransfer
+      ? `${escape(cta ? cta.nombre : '—')}${sub ? ' · ' + escape(sub.nombre) : ''}<div class="body-sm" style="color: var(--on-surface-variant);">→ ${escape(ctaD ? ctaD.nombre : '—')}${subD ? ' · ' + escape(subD.nombre) : ''}</div>`
+      : `${escape(cta ? cta.nombre : '—')}${sub ? `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sub.nombre)}</div>` : ''}`;
     const pill = t.estado === 'conciliado' ? 'pill-primary' : t.estado === 'vencido' ? 'pill-error' : t.estado === 'pagado' ? 'pill-secondary' : 'pill-outline';
     return `<tr>
       <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat ? cat.nombre : 'Otros')}</div></td>
       <td>${escape(t.fecha)}</td>
       <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}</td>
-      <td>${escape(cta ? cta.nombre : '—')}${sub ? `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sub.nombre)}</div>` : ''}</td>
+      <td>${cuentaHtml}</td>
       <td>${escape(cat ? cat.nombre : '—')}</td>
       <td><span class="pill ${pill}">${escape(t.estado)}</span></td>
-      <td class="num" style="color: ${sign > 0 ? 'var(--primary)' : 'var(--error)'};">${sign > 0 ? '+' : '-'}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</td>
+      <td class="num" style="color: ${color};">${sign}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</td>
       <td class="actions">
         <button class="icon-btn" data-tx-edit="${t.id}">${ICONOS.edit}</button>
         <button class="icon-btn" data-tx-del="${t.id}">${ICONOS.delete}</button>
