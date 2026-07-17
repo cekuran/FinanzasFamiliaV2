@@ -216,7 +216,11 @@ function obtenerCuentas() {
       };
     }).sort((a, b) => a.orden - b.orden);
 
-    const subSaldoTotal = subcuentas.reduce((s, x) => s + x.saldo, 0);
+    // Modelo de partición: las subcuentas reparten el saldo del padre, no lo
+    // aumentan. Su saldo_inicial ya forma parte del saldo_inicial del padre, así
+    // que al total del padre solo se le suma la variación por movimientos de
+    // subcuenta (subDelta), nunca su saldo inicial (evita doble conteo).
+    const subDeltaTotal = subcuentas.reduce((s, x) => s + (x.saldo - x.saldo_inicial), 0);
     const parentDelta = parentTxs.reduce((s, t) => s + deltaCuenta_(t, c.id), 0);
 
     const hoy = new Date();
@@ -227,19 +231,19 @@ function obtenerCuentas() {
       const parentDeltaK = parentTxs
         .filter(t => String(t.fecha).slice(0, 7) <= k)
         .reduce((s, t) => s + deltaCuenta_(t, c.id), 0);
-      const subSaldoK = subcuentas.reduce((s, sub) => {
-        const subDeltaK = txs
+      const subDeltaK = subcuentas.reduce((s, sub) => {
+        const dK = txs
           .filter(t => t.subcuenta_id === sub.id && String(t.fecha).slice(0, 7) <= k)
           .reduce((sd, t) => sd + deltaSubcuenta_(t, sub.id), 0);
-        return s + sub.saldo_inicial + subDeltaK;
+        return s + dK;
       }, 0);
-      evolucion.push({ mes: k, saldo: parentInitial + parentDeltaK + subSaldoK });
+      evolucion.push({ mes: k, saldo: parentInitial + parentDeltaK + subDeltaK });
     }
 
     return {
       id: c.id, nombre: c.nombre, tipo: c.tipo, moneda: c.moneda, icono: c.icono,
       saldo_inicial: parentInitial,
-      saldo: parentInitial + parentDelta + subSaldoTotal,
+      saldo: parentInitial + parentDelta + subDeltaTotal,
       evolucion,
       subcuentas
     };
@@ -283,6 +287,9 @@ function guardarCuenta(cuenta) {
     if (!['activo', 'pasivo'].includes(cuenta.tipo)) throw new Error('Tipo inválido');
     if (!cuenta.moneda) throw new Error('Moneda obligatoria');
   }
+  // Al editar, preservamos metadatos que el cliente no envía (orden, icono y
+  // fecha de creación) para no reiniciarlos y romper el orden de subcuentas.
+  const existente = cuenta.id ? todas.find(c => c.owner_email === owner && c.id === cuenta.id) : null;
   const fila = Object.assign({
     owner_email: owner,
     id: cuenta.id || uid_('cta'),
@@ -290,11 +297,11 @@ function guardarCuenta(cuenta) {
     nombre: String(cuenta.nombre).trim(),
     tipo: cuenta.tipo,
     moneda: String(cuenta.moneda).toUpperCase(),
-    icono: cuenta.icono || 'account_balance_wallet',
+    icono: cuenta.icono || (existente && existente.icono) || 'account_balance_wallet',
     saldo_inicial: Number(cuenta.saldo_inicial || 0),
-    orden: cuenta.orden || 99,
+    orden: cuenta.orden || (existente && existente.orden) || 99,
     oculta: !!cuenta.oculta,
-    fecha_creacion: isoAhora_()
+    fecha_creacion: (existente && existente.fecha_creacion) || isoAhora_()
   }, cuenta);
   upsertFila('Cuentas', fila);
   return obtenerCuentas();
@@ -712,7 +719,9 @@ function __selfTest() {
   const fresh = obtenerCuentas().find(c => c.id === parent.id);
   const sub = (fresh.subcuentas || []).find(s => s.id === subId);
   if (!sub || sub.saldo !== 70) throw new Error('Saldo subcuenta incorrecto: ' + (sub && sub.saldo));
-  if (fresh.saldo !== parent.saldo + 70) throw new Error('Saldo padre incorrecto: ' + fresh.saldo);
+  // Modelo de partición: el saldo_inicial (100) de la subcuenta ya forma parte del
+  // saldo del padre, así que crearla no cambia el total; solo el gasto (30) lo baja.
+  if (fresh.saldo !== parent.saldo - 30) throw new Error('Saldo padre incorrecto: ' + fresh.saldo);
   // Reorder
   const ctas2 = leerHoja('Cuentas');
   const anotherId = uid_('cta');
