@@ -310,7 +310,7 @@
   .sheet-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(4px); z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
   .sheet-overlay.is-open { opacity: 1; pointer-events: auto; }
   .sheet { position: fixed; z-index: 101; background: var(--surface); display: flex; flex-direction: column; transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1); }
-  .sheet.bottom { left: 0; right: 0; bottom: 0; max-height: 90dvh; border-radius: 24px 24px 0 0; padding: var(--s-5) var(--s-4) calc(var(--s-5) + env(safe-area-inset-bottom, 0)); transform: translateY(100%); }
+  .sheet.bottom { left: 0; right: 0; bottom: 0; max-height: 90dvh; border-radius: 24px 24px 0 0; padding: var(--s-5) var(--s-4) calc(var(--s-5) + env(safe-area-inset-bottom, 0)); transform: translateY(100%); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
   .sheet.bottom.is-open { transform: translateY(0); }
   .sheet.right { top: 0; right: 0; bottom: 0; width: min(480px, 100vw); padding: var(--s-5); transform: translateX(100%); overflow-y: auto; }
   .sheet.right.is-open { transform: translateX(0); }
@@ -671,10 +671,12 @@
     <button data-tx-tipo="ingreso" style="flex:1;">Ingreso</button>
     <button data-tx-tipo="transferencia" style="flex:1;">Transferencia</button>
   </div>
-  <form id="formTx" style="display: flex; flex-direction: column; gap: var(--s-3);">
+  <form id="formTx" style="display: flex; flex-direction: column; gap: var(--s-2);">
     <input type="hidden" name="id" id="txId">
-    <div class="field"><label>Importe</label><input class="input" type="number" step="0.01" min="0" name="importe" id="txImporte" required></div>
-    <div class="field"><label>Fecha</label><input class="input" type="date" name="fecha" id="txFecha" required></div>
+    <div class="field-row">
+      <div class="field"><label>Importe</label><input class="input" type="number" step="0.01" min="0" name="importe" id="txImporte" required></div>
+      <div class="field"><label>Fecha</label><input class="input" type="date" name="fecha" id="txFecha" required></div>
+    </div>
     <div class="field"><label>Cuenta</label><select class="select" name="cuenta_id" id="txCuenta" required></select></div>
     <div class="field" id="wrapSubcuenta" style="display: none;"><label>Subcuenta</label><select class="select" name="subcuenta_id" id="txSubcuenta"><option value="">— Ninguna —</option></select></div>
     <div class="field" id="wrapCuentaDest" style="display: none;"><label>Cuenta destino</label><select class="select" name="cuenta_destino_id" id="txCuentaDest"></select></div>
@@ -697,7 +699,7 @@
       <label for="txRecurrenteSwitch" style="margin: 0;">Hacer recurrente</label>
       <label class="switch"><input type="checkbox" id="txRecurrenteSwitch"><span class="track"><span class="knob"></span></span></label>
     </div>
-    <div id="wrapRecurrente" style="display: none; flex-direction: column; gap: var(--s-3);">
+    <div id="wrapRecurrente" style="display: none; flex-direction: column; gap: var(--s-2);">
       <div class="field-row">
         <div class="field"><label>Periodicidad</label>
           <select class="select" id="txRecPeriodo">
@@ -710,7 +712,7 @@
         <div class="field"><label>Día del mes</label><input class="input" type="number" min="1" max="31" id="txRecDia" value="1"></div>
       </div>
     </div>
-    <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
+    <div style="position: sticky; bottom: 0; margin: var(--s-3) calc(-1 * var(--s-4)) calc(-1 * var(--s-5) - env(safe-area-inset-bottom, 0)); padding: var(--s-3) var(--s-4); background: var(--surface); display: flex; gap: var(--s-2); border-top: 1px solid var(--surface-container);">
       <button type="button" class="btn btn-secondary" id="txCancel" style="flex: 1;">Cancelar</button>
       <button type="submit" class="btn btn-primary" style="flex: 2;">Guardar</button>
     </div>
