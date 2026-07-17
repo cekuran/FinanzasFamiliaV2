@@ -770,6 +770,21 @@
       </div>
       <div class="field"><label>Color</label><input class="input" type="color" name="color" id="catColor" value="#00613e" style="height: 50px; padding: 4px;"></div>
     </div>
+    <div class="field"><label>Icono</label>
+      <select class="select" name="icono" id="catIcono">
+        <option value="category">General</option>
+        <option value="home">Vivienda</option>
+        <option value="shopping_cart">Compras</option>
+        <option value="directions_car">Transporte</option>
+        <option value="movie">Ocio</option>
+        <option value="fitness_center">Salud</option>
+        <option value="subscriptions">Suscripciones</option>
+        <option value="work">Trabajo</option>
+        <option value="payments">Pagos</option>
+        <option value="receipt_long">Recibos</option>
+        <option value="bolt">Servicios</option>
+      </select>
+    </div>
     <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
       <button type="button" class="btn btn-secondary" id="catCancel" style="flex: 1;">Cancelar</button>
       <button type="submit" class="btn btn-primary" style="flex: 2;">Guardar</button>
@@ -848,10 +863,9 @@ const ICONOS = {
 };
 
 const ICON_MAP = { account_balance: ICONOS.account_balance, savings: ICONOS.savings, credit_card: ICONOS.credit_card };
-const icoCat = (cat) => {
-  const map = { 'Vivienda': ICONOS.home, 'Alimentación': ICONOS.shopping_cart, 'Transporte': ICONOS.directions_car, 'Ocio': ICONOS.movie, 'Salud': ICONOS.fitness_center, 'Suscripciones': ICONOS.subscriptions, 'Nómina': ICONOS.payments, 'Ingresos extra': ICONOS.work };
-  return map[cat] || ICONOS.category;
-};
+const CAT_ICON_BY_NAME = { 'Vivienda': 'home', 'Alimentación': 'shopping_cart', 'Transporte': 'directions_car', 'Ocio': 'movie', 'Salud': 'fitness_center', 'Suscripciones': 'subscriptions', 'Nómina': 'payments', 'Ingresos extra': 'work' };
+const iconoCat = cat => (cat && cat.icono) || CAT_ICON_BY_NAME[cat && cat.nombre] || 'category';
+const icoCat = cat => ICONOS[iconoCat(cat)] || ICONOS.category;
 const tintCat = (color) => color ? `background: ${color}20; color: ${color};` : 'background: var(--surface-container); color: var(--on-surface-variant);';
 
 const Estado = {
@@ -997,7 +1011,7 @@ function txRow(t) {
     ? origen + ' → ' + escape(ctaD ? ctaD.nombre : '—') + (subD ? ' · ' + escape(subD.nombre) : '')
     : origen + ' · ' + escape(cat ? cat.nombre : '—');
   return `<div class="tx-row">
-    <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat ? cat.nombre : 'Otros')}</div>
+    <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat)}</div>
     <div class="tx-main">
       <div class="tx-title">${escape(t.descripcion || (cat ? cat.nombre : 'Sin descripción'))}</div>
       <div class="tx-sub">${escape(t.fecha || '')} · ${detalle}</div>
@@ -1083,7 +1097,7 @@ function renderMovimientos() {
       : `${escape(cta ? cta.nombre : '—')}${sub ? `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sub.nombre)}</div>` : ''}`;
     const pill = t.estado === 'conciliado' ? 'pill-primary' : t.estado === 'vencido' ? 'pill-error' : t.estado === 'pagado' ? 'pill-secondary' : 'pill-outline';
     return `<tr>
-      <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat ? cat.nombre : 'Otros')}</div></td>
+      <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat)}</div></td>
       <td>${escape(t.fecha)}</td>
       <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}</td>
       <td>${cuentaHtml}</td>
@@ -1119,7 +1133,7 @@ function renderRecurrentes() {
     const cat = Estado.bootstrap.categorias.find(c => c.id === p.categoria_id);
     const sign = p.tipo === 'ingreso' ? 1 : -1;
     return `<div class="card card-pad-md" style="display: flex; align-items: center; gap: var(--s-4);">
-      <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat ? cat.nombre : 'Recurrente')}</div>
+      <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat)}</div>
       <div style="flex: 1;">
         <div class="title-sm">${escape(p.descripcion || '—')}</div>
         <div class="body-sm" style="color: var(--on-surface-variant);">${escape(cta ? cta.nombre : '—')} · día ${p.dia_mes} · ${escape(p.periodicidad)}</div>
@@ -1175,7 +1189,7 @@ function renderCategorias() {
   const cats = Estado.bootstrap.categorias;
   $('#catList').innerHTML = cats.length ? cats.map(c => `
     <div class="card col-4 card-pad-md" style="display: flex; align-items: center; gap: var(--s-3);">
-      <div class="tx-ico" style="${tintCat(c.color)}">${icoCat(c.nombre)}</div>
+      <div class="tx-ico" style="${tintCat(c.color)}">${icoCat(c)}</div>
       <div style="flex: 1;">
         <div class="title-sm">${escape(c.nombre)}</div>
         <div class="body-sm" style="color: var(--on-surface-variant);">${escape(c.tipo)}</div>
@@ -1221,7 +1235,7 @@ async function renderPresupuesto() {
     return `<div>
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
         <div style="display: flex; align-items: center; gap: var(--s-3);">
-          <div class="tx-ico" style="${tintCat(c.color)}; width: 32px; height: 32px;">${icoCat(c.nombre)}</div>
+          <div class="tx-ico" style="${tintCat(c.color)}; width: 32px; height: 32px;">${icoCat(c)}</div>
           <span class="title-sm">${escape(c.nombre)}</span>
         </div>
         <div class="data-tabular"><strong>${fmtMoneda(r.real)}</strong> <span style="color: var(--on-surface-variant);">/ ${fmtMoneda(r.esperado)}</span></div>
@@ -1509,6 +1523,7 @@ function openCat(id) {
   $('#catNombre').value = c ? c.nombre : '';
   $('#catTipo').value = c ? c.tipo : 'gasto';
   $('#catColor').value = c ? c.color : '#00613e';
+  $('#catIcono').value = c ? iconoCat(c) : 'category';
   openSheet('sheetCat');
 }
 $('#catCancel').addEventListener('click', closeAllSheets);
@@ -1520,7 +1535,8 @@ $('#formCat').addEventListener('submit', async (e) => {
       id: f.get('id') || '',
       nombre: f.get('nombre'),
       tipo: f.get('tipo'),
-      color: f.get('color')
+      color: f.get('color'),
+      icono: f.get('icono')
     });
     closeAllSheets();
     renderCategorias();

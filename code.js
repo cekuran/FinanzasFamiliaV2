@@ -4,7 +4,7 @@
 
 const SCHEMA = {
   Cuentas:       ['owner_email','id','parent_id','nombre','tipo','moneda','icono','saldo_inicial','orden','oculta','fecha_creacion'],
-  Categorias:    ['owner_email','id','nombre','color','tipo','orden'],
+  Categorias:    ['owner_email','id','nombre','color','icono','tipo','orden'],
   Transacciones: ['owner_email','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','subcuenta_destino_id','importe_destino','ratio_conversion','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion'],
   Recurrentes:   ['owner_email','id','plantilla','ultima_generacion','activa'],
   Presupuestos:  ['owner_email','id','anio','mes','categoria_id','importe_esperado'],
@@ -27,14 +27,14 @@ const SEMILLA = {
     { nombre: 'Tarjeta Visa', tipo: 'pasivo', moneda: 'EUR', icono: 'credit_card', saldo_inicial: 0, orden: 3 }
   ],
   Categorias: [
-    { nombre: 'Vivienda',       color: '#00613e', tipo: 'gasto',  orden: 1 },
-    { nombre: 'Alimentación',   color: '#0c68db', tipo: 'gasto',  orden: 2 },
-    { nombre: 'Transporte',     color: '#ba1a1a', tipo: 'gasto',  orden: 3 },
-    { nombre: 'Ocio',           color: '#b13c68', tipo: 'gasto',  orden: 4 },
-    { nombre: 'Salud',          color: '#d27b1b', tipo: 'gasto',  orden: 5 },
-    { nombre: 'Suscripciones',  color: '#0050af', tipo: 'gasto',  orden: 6 },
-    { nombre: 'Nómina',         color: '#006c46', tipo: 'ingreso',orden: 7 },
-    { nombre: 'Ingresos extra', color: '#107c52', tipo: 'ingreso',orden: 8 }
+    { nombre: 'Vivienda',       color: '#00613e', icono: 'home',            tipo: 'gasto',  orden: 1 },
+    { nombre: 'Alimentación',   color: '#0c68db', icono: 'shopping_cart',   tipo: 'gasto',  orden: 2 },
+    { nombre: 'Transporte',     color: '#ba1a1a', icono: 'directions_car',  tipo: 'gasto',  orden: 3 },
+    { nombre: 'Ocio',           color: '#b13c68', icono: 'movie',           tipo: 'gasto',  orden: 4 },
+    { nombre: 'Salud',          color: '#d27b1b', icono: 'fitness_center',  tipo: 'gasto',  orden: 5 },
+    { nombre: 'Suscripciones',  color: '#0050af', icono: 'subscriptions',   tipo: 'gasto',  orden: 6 },
+    { nombre: 'Nómina',         color: '#006c46', icono: 'payments',        tipo: 'ingreso',orden: 7 },
+    { nombre: 'Ingresos extra', color: '#107c52', icono: 'work',            tipo: 'ingreso',orden: 8 }
   ]
 };
 
@@ -426,11 +426,13 @@ function obtenerCategorias() {
 
 function guardarCategoria(cat) {
   const owner = email_();
-  const fila = Object.assign({
+  const existente = cat.id ? leerHoja('Categorias').find(c => c.owner_email === owner && c.id === cat.id) : null;
+  const fila = {
     owner_email: owner, id: cat.id || uid_('cat'),
     nombre: String(cat.nombre).trim(), color: cat.color || '#00613e',
-    tipo: cat.tipo || 'gasto', orden: cat.orden || 99
-  }, cat);
+    icono: cat.icono || (existente && existente.icono) || 'category',
+    tipo: cat.tipo || 'gasto', orden: cat.orden || (existente && existente.orden) || 99
+  };
   upsertFila('Categorias', fila);
   return obtenerCategorias();
 }
