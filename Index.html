@@ -270,6 +270,15 @@
   .acct-balance { font-size: 20px; line-height: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .acct-actions { display: flex; gap: 4px; }
 
+  .subcuentas { display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--outline-variant); padding-top: var(--s-3); }
+  .subcta-row { display: flex; align-items: center; gap: var(--s-2); padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-container-lowest); cursor: grab; }
+  .subcta-row.is-dragging { opacity: 0.4; }
+  .subcta-row.is-drop-target { box-shadow: 0 -2px 0 var(--primary); }
+  .subcta-grip { color: var(--on-surface-variant); font-size: 16px; line-height: 1; cursor: grab; padding: 0 4px; user-select: none; }
+  .subcta-name { flex: 1; font-size: 13px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .subcta-balance { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .subcta-add { padding: 6px 8px; font-size: 12px; }
+
   /* === Bar chart === */
   .bars { display: flex; align-items: end; gap: 6px; height: 140px; padding: 0 4px; }
   /* ponytail: .bar necesita altura definida para que el height:% de .bar-stack se resuelva; con align-items:end queda content-sized y colapsa a 0 */
@@ -460,6 +469,9 @@
         <div class="field-row" style="margin-bottom: var(--s-3);">
           <div class="field"><label>Cuenta</label><select class="select" id="filtroCuenta"><option value="">Todas</option></select></div>
           <div class="field"><label>Tipo</label><select class="select" id="filtroTipo"><option value="">Todos</option><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option><option value="transferencia">Transferencia</option></select></div>
+        </div>
+        <div class="field-row" id="wrapFiltroSubcuenta" style="display: none; margin-bottom: var(--s-3);">
+          <div class="field"><label>Subcuenta</label><select class="select" id="filtroSubcuenta"><option value="">Todas</option></select></div>
         </div>
         <div class="field-row" style="margin-bottom: var(--s-3);">
           <div class="field"><label>Desde</label><input class="input" type="date" id="filtroDesde"></div>
@@ -664,6 +676,7 @@
     <div class="field"><label>Importe</label><input class="input" type="number" step="0.01" min="0" name="importe" id="txImporte" required></div>
     <div class="field"><label>Fecha</label><input class="input" type="date" name="fecha" id="txFecha" required></div>
     <div class="field"><label>Cuenta</label><select class="select" name="cuenta_id" id="txCuenta" required></select></div>
+    <div class="field" id="wrapSubcuenta" style="display: none;"><label>Subcuenta</label><select class="select" name="subcuenta_id" id="txSubcuenta"><option value="">— Ninguna —</option></select></div>
     <div class="field" id="wrapCuentaDest" style="display: none;"><label>Cuenta destino</label><select class="select" name="cuenta_destino_id" id="txCuentaDest"></select></div>
     <div class="field" id="wrapCategoria"><label>Categoría</label><select class="select" name="categoria_id" id="txCategoria"></select></div>
     <div class="field"><label>Descripción</label><input class="input" type="text" name="descripcion" id="txDesc" placeholder="Ej. Compra semanal"></div>
@@ -710,8 +723,13 @@
   <h3 id="sheetCuentaTitle">Nueva cuenta</h3>
   <form id="formCuenta" style="display: flex; flex-direction: column; gap: var(--s-3);">
     <input type="hidden" name="id" id="ctaId">
+    <input type="hidden" name="parent_id" id="ctaParentId">
+    <div class="field" id="wrapCtaParent" style="display: none;">
+      <label>Cuenta padre</label>
+      <div class="body-sm" id="ctaParentLabel" style="color: var(--on-surface-variant);"></div>
+    </div>
     <div class="field"><label>Nombre</label><input class="input" type="text" name="nombre" id="ctaNombre" required></div>
-    <div class="field-row">
+    <div class="field-row" id="ctaTopFields">
       <div class="field"><label>Tipo</label>
         <select class="select" name="tipo" id="ctaTipo">
           <option value="activo">Activo</option>
@@ -834,7 +852,7 @@ const tintCat = (color) => color ? `background: ${color}20; color: ${color};` : 
 
 const Estado = {
   bootstrap: { cuentas: [], categorias: [], transacciones: [], recurrentes: [], presupuestos: [], resumen: null, sesion: null, version: '' },
-  filtros: { cuenta_id: '', tipo: '', desde: '', hasta: '', q: '' },
+  filtros: { cuenta_id: '', subcuenta_id: '', tipo: '', desde: '', hasta: '', q: '' },
   pres: { anio: new Date().getFullYear(), mes: new Date().getMonth() + 1, asignado: {} },
   txTipo: 'gasto',
   editing: null,
@@ -964,13 +982,14 @@ function emptyHtml(t, s) {
 function txRow(t) {
   const cat = Estado.bootstrap.categorias.find(c => c.id === t.categoria_id);
   const cta = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_id);
+  const sub = (cta && t.subcuenta_id) ? (cta.subcuentas || []).find(s => s.id === t.subcuenta_id) : null;
   const sign = t.tipo === 'ingreso' ? 1 : -1;
   const cls = sign > 0 ? 'pos' : 'neg';
   return `<div class="tx-row">
     <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat ? cat.nombre : 'Otros')}</div>
     <div class="tx-main">
       <div class="tx-title">${escape(t.descripcion || (cat ? cat.nombre : 'Sin descripción'))}</div>
-      <div class="tx-sub">${escape(t.fecha || '')} · ${escape(cta ? cta.nombre : '')} · ${escape(cat ? cat.nombre : '')}</div>
+      <div class="tx-sub">${escape(t.fecha || '')} · ${escape(cta ? cta.nombre : '')}${sub ? ' · ' + escape(sub.nombre) : ''} · ${escape(cat ? cat.nombre : '')}</div>
     </div>
     <div class="tx-amount ${cls}">${sign > 0 ? '+' : '-'}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</div>
   </div>`;
@@ -994,14 +1013,29 @@ function renderCuentas() {
           return `<div class="bar"><div class="bar-stack" style="height: ${Math.max(6, h)}%;"><div class="bar-fill" style="height: 100%; background: ${c.tipo === 'pasivo' ? 'var(--error)' : 'var(--primary)'};"></div></div><div class="bar-label">${p.mes.slice(5, 7)}</div></div>`;
         }).join('')}
       </div>
-      <div style="display: flex; justify-content: end; gap: 4px;">
-        <button class="icon-btn" data-cta-edit="${c.id}">${ICONOS.edit}</button>
-        <button class="icon-btn" data-cta-del="${c.id}">${ICONOS.delete}</button>
+      ${(c.subcuentas && c.subcuentas.length) ? `<div class="subcuentas" data-subcuentas-parent="${c.id}">${c.subcuentas.map(s => `
+        <div class="subcta-row" draggable="true" data-sub-id="${s.id}">
+          <div class="subcta-grip" title="Arrastra para reordenar">≡</div>
+          <div class="subcta-name">↳ ${escape(s.nombre)}</div>
+          <div class="subcta-balance">${fmtMoneda(s.saldo, c.moneda)}</div>
+          <button class="icon-btn" data-sub-edit="${s.id}" data-sub-parent="${c.id}" title="Editar subcuenta">${ICONOS.edit}</button>
+          <button class="icon-btn" data-sub-del="${s.id}" data-sub-parent="${c.id}" title="Eliminar subcuenta">${ICONOS.delete}</button>
+        </div>`).join('')}</div>` : ''}
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 4px;">
+        <button class="btn btn-sm btn-ghost subcta-add" data-cta-add-sub="${c.id}">+ Subcuenta</button>
+        <div style="display: flex; gap: 4px;">
+          <button class="icon-btn" data-cta-edit="${c.id}">${ICONOS.edit}</button>
+          <button class="icon-btn" data-cta-del="${c.id}">${ICONOS.delete}</button>
+        </div>
       </div>
     </div>
   `).join('') : emptyHtml('Sin cuentas', 'Crea tu primera cuenta.');
   $$('[data-cta-edit]').forEach(b => b.addEventListener('click', () => openCuenta(b.dataset.ctaEdit)));
   $$('[data-cta-del]').forEach(b => b.addEventListener('click', () => borrarCuenta(b.dataset.ctaDel)));
+  $$('[data-cta-add-sub]').forEach(b => b.addEventListener('click', () => openCuenta('', b.dataset.ctaAddSub)));
+  $$('[data-sub-edit]').forEach(b => b.addEventListener('click', () => openCuenta(b.dataset.subEdit, b.dataset.subParent)));
+  $$('[data-sub-del]').forEach(b => b.addEventListener('click', () => borrarSubcuenta(b.dataset.subDel, b.dataset.subParent)));
+  wireDragReorder();
 }
 
 async function borrarCuenta(id) {
@@ -1015,6 +1049,7 @@ function renderMovimientos() {
   const f = Estado.filtros;
   let lista = Estado.bootstrap.transacciones.slice();
   if (f.cuenta_id) lista = lista.filter(t => t.cuenta_id === f.cuenta_id || t.cuenta_destino_id === f.cuenta_id);
+  if (f.subcuenta_id) lista = lista.filter(t => t.subcuenta_id === f.subcuenta_id);
   if (f.tipo) lista = lista.filter(t => t.tipo === f.tipo);
   if (f.desde) lista = lista.filter(t => String(t.fecha) >= f.desde);
   if (f.hasta) lista = lista.filter(t => String(t.fecha) <= f.hasta);
@@ -1026,13 +1061,14 @@ function renderMovimientos() {
   $('#movBody').innerHTML = lista.length ? lista.map(t => {
     const cat = Estado.bootstrap.categorias.find(c => c.id === t.categoria_id);
     const cta = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_id);
+    const sub = (cta && t.subcuenta_id) ? (cta.subcuentas || []).find(s => s.id === t.subcuenta_id) : null;
     const sign = t.tipo === 'ingreso' ? 1 : -1;
     const pill = t.estado === 'conciliado' ? 'pill-primary' : t.estado === 'vencido' ? 'pill-error' : t.estado === 'pagado' ? 'pill-secondary' : 'pill-outline';
     return `<tr>
       <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat ? cat.nombre : 'Otros')}</div></td>
       <td>${escape(t.fecha)}</td>
       <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}</td>
-      <td>${escape(cta ? cta.nombre : '—')}</td>
+      <td>${escape(cta ? cta.nombre : '—')}${sub ? `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sub.nombre)}</div>` : ''}</td>
       <td>${escape(cat ? cat.nombre : '—')}</td>
       <td><span class="pill ${pill}">${escape(t.estado)}</span></td>
       <td class="num" style="color: ${sign > 0 ? 'var(--primary)' : 'var(--error)'};">${sign > 0 ? '+' : '-'}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</td>
@@ -1231,6 +1267,7 @@ function openTx(id) {
   poblarSelect('#txCuenta', Estado.bootstrap.cuentas, f.cuenta_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCuentaDest', Estado.bootstrap.cuentas, f.cuenta_destino_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (f.tipo === 'ingreso' ? 'ingreso' : 'gasto')), f.categoria_id, c => c.nombre);
+  actualizarSubcuentasTx();
   $('#txDesc').value = f.descripcion || '';
   $('#txImporteDest').value = f.importe_destino || '';
   $('#txRatio').value = f.ratio_conversion || '';
@@ -1257,8 +1294,28 @@ function setTipoTx(tipo) {
   $('#wrapConversion').style.display = tipo === 'transferencia' ? '' : 'none';
   $('#wrapCategoria').style.display = tipo === 'transferencia' ? 'none' : '';
   poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (tipo === 'ingreso' ? 'ingreso' : 'gasto')), '', c => c.nombre);
+  actualizarSubcuentasTx();
 }
 $$('[data-tx-tipo]').forEach(b => b.addEventListener('click', () => setTipoTx(b.dataset.txTipo)));
+
+function actualizarSubcuentasTx() {
+  const ctaId = $('#txCuenta').value;
+  const cta = Estado.bootstrap.cuentas.find(c => c.id === ctaId);
+  const subs = (cta && cta.subcuentas) || [];
+  const isTransfer = Estado.txTipo === 'transferencia';
+  const visible = subs.length > 0 && !isTransfer;
+  $('#wrapSubcuenta').style.display = visible ? '' : 'none';
+  const sel = $('#txSubcuenta');
+  if (visible) {
+    const current = Estado.editing && Estado.editing.subcuenta_id;
+    sel.innerHTML = '<option value="">— Ninguna —</option>' + subs.map(s =>
+      `<option value="${s.id}" ${s.id === current ? 'selected' : ''}>${escape(s.nombre)}</option>`
+    ).join('');
+  } else {
+    sel.value = '';
+  }
+}
+$('#txCuenta').addEventListener('change', actualizarSubcuentasTx);
 $('#txRecurrenteSwitch').addEventListener('change', e => {
   $('#wrapRecurrente').style.display = e.target.checked ? 'flex' : 'none';
 });
@@ -1273,6 +1330,7 @@ $('#formTx').addEventListener('submit', async (e) => {
     importe: Number(f.get('importe')),
     fecha: f.get('fecha'),
     cuenta_id: f.get('cuenta_id'),
+    subcuenta_id: f.get('subcuenta_id') || '',
     cuenta_destino_id: f.get('cuenta_destino_id') || '',
     importe_destino: f.get('importe_destino') || '',
     ratio_conversion: f.get('ratio_conversion') || '',
@@ -1304,13 +1362,27 @@ function poblarSelect(sel, items, val, label) {
 }
 
 // === Cuenta sheet ===
-function openCuenta(id) {
-  const c = id ? Estado.bootstrap.cuentas.find(x => x.id === id) : null;
-  $('#sheetCuentaTitle').textContent = c ? 'Editar cuenta' : 'Nueva cuenta';
+function openCuenta(id, parentId) {
+  let c = id ? Estado.bootstrap.cuentas.find(x => x.id === id) : null;
+  let parent = parentId ? Estado.bootstrap.cuentas.find(x => x.id === parentId) : null;
+  // Si llega id sin parent y no está en top-level, buscar como subcuenta de algún padre
+  if (id && !c && !parent) {
+    for (const p of Estado.bootstrap.cuentas) {
+      const sub = (p.subcuentas || []).find(s => s.id === id);
+      if (sub) { c = sub; parent = p; break; }
+    }
+  } else if (id && !c && parent) {
+    c = (parent.subcuentas || []).find(s => s.id === id) || null;
+  }
+  $('#sheetCuentaTitle').textContent = parent ? (c ? 'Editar subcuenta' : 'Nueva subcuenta') : (c ? 'Editar cuenta' : 'Nueva cuenta');
   $('#ctaId').value = c ? c.id : '';
+  $('#ctaParentId').value = parent ? parent.id : '';
+  $('#wrapCtaParent').style.display = parent ? '' : 'none';
+  $('#ctaParentLabel').textContent = parent ? (parent.nombre + ' · ' + parent.moneda) : '';
+  $('#ctaTopFields').style.display = parent ? 'none' : '';
   $('#ctaNombre').value = c ? c.nombre : '';
-  $('#ctaTipo').value = c ? c.tipo : 'activo';
-  $('#ctaMoneda').value = c ? c.moneda : 'EUR';
+  $('#ctaTipo').value = (c && c.tipo) ? c.tipo : 'activo';
+  $('#ctaMoneda').value = (c && c.moneda) ? c.moneda : 'EUR';
   $('#ctaSaldo').value = c ? c.saldo_inicial : 0;
   openSheet('sheetCuenta');
 }
@@ -1321,6 +1393,7 @@ $('#formCuenta').addEventListener('submit', async (e) => {
   try {
     Estado.bootstrap.cuentas = await call('guardarCuenta', {
       id: f.get('id') || '',
+      parent_id: f.get('parent_id') || '',
       nombre: f.get('nombre'),
       tipo: f.get('tipo'),
       moneda: f.get('moneda'),
@@ -1332,6 +1405,61 @@ $('#formCuenta').addEventListener('submit', async (e) => {
     toast('Cuenta guardada');
   } catch (err) { toast('Error: ' + err.message); }
 });
+
+async function borrarSubcuenta(id, parentId) {
+  const parent = Estado.bootstrap.cuentas.find(c => c.id === parentId);
+  const sub = parent && (parent.subcuentas || []).find(s => s.id === id);
+  if (!confirm('¿Eliminar la subcuenta "' + (sub ? sub.nombre : '') + '"?')) return;
+  try {
+    Estado.bootstrap.cuentas = await call('eliminarCuenta', id);
+    renderCuentas();
+    renderDashboard();
+    toast('Subcuenta eliminada');
+  } catch (err) { toast('Error: ' + err.message); }
+}
+
+function wireDragReorder() {
+  $$('.subcta-row').forEach(row => {
+    row.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', row.dataset.subId);
+      e.dataTransfer.effectAllowed = 'move';
+      row.classList.add('is-dragging');
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('is-dragging');
+      $$('.subcta-row').forEach(r => r.classList.remove('is-drop-target'));
+    });
+    row.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      row.classList.add('is-drop-target');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('is-drop-target'));
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      const srcId = e.dataTransfer.getData('text/plain');
+      const dstId = row.dataset.subId;
+      row.classList.remove('is-drop-target');
+      if (srcId === dstId) return;
+      const container = row.parentElement;
+      const parentId = container.dataset.subcuentasParent;
+      const rows = Array.from(container.querySelectorAll('.subcta-row'));
+      const srcIdx = rows.findIndex(r => r.dataset.subId === srcId);
+      const dstIdx = rows.findIndex(r => r.dataset.subId === dstId);
+      const moved = rows.splice(srcIdx, 1)[0];
+      rows.splice(dstIdx, 0, moved);
+      rows.forEach(r => container.appendChild(r));
+      try {
+        Estado.bootstrap.cuentas = await call('reordenarSubcuentas', parentId, rows.map(r => r.dataset.subId));
+        renderCuentas();
+        toast('Orden guardado');
+      } catch (err) {
+        toast('Error: ' + err.message);
+        await recargar();
+      }
+    });
+  });
+}
 
 // === Cat sheet ===
 function openCat(id) {
@@ -1404,10 +1532,42 @@ function poblarFiltros() {
   $('#filtroDesde').value = Estado.filtros.desde;
   $('#filtroHasta').value = Estado.filtros.hasta;
   $('#filtroQ').value = Estado.filtros.q;
+  actualizarFiltroSubcuenta();
 }
-['filtroCuenta', 'filtroTipo', 'filtroDesde', 'filtroHasta', 'filtroQ'].forEach(id => {
-  $('#' + id).addEventListener('input', (e) => {
-    Estado.filtros[id.replace('filtro', '').toLowerCase()] = e.target.value;
+const FILTRO_KEY = {
+  filtroCuenta: 'cuenta_id',
+  filtroSubcuenta: 'subcuenta_id',
+  filtroTipo: 'tipo',
+  filtroDesde: 'desde',
+  filtroHasta: 'hasta',
+  filtroQ: 'q'
+};
+function actualizarFiltroSubcuenta() {
+  const ctaId = $('#filtroCuenta').value;
+  const cta = Estado.bootstrap.cuentas.find(c => c.id === ctaId);
+  const subs = (cta && cta.subcuentas) || [];
+  const visible = subs.length > 0;
+  $('#wrapFiltroSubcuenta').style.display = visible ? '' : 'none';
+  const sel = $('#filtroSubcuenta');
+  if (visible) {
+    const validIds = subs.map(s => s.id);
+    if (Estado.filtros.subcuenta_id && !validIds.includes(Estado.filtros.subcuenta_id)) {
+      Estado.filtros.subcuenta_id = '';
+    }
+    sel.innerHTML = '<option value="">Todas</option>' + subs.map(s =>
+      `<option value="${s.id}" ${s.id === Estado.filtros.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
+    ).join('');
+  } else {
+    sel.value = '';
+    Estado.filtros.subcuenta_id = '';
+  }
+}
+Object.keys(FILTRO_KEY).forEach(id => {
+  const el = $('#' + id);
+  if (!el) return;
+  el.addEventListener('input', e => {
+    Estado.filtros[FILTRO_KEY[id]] = e.target.value;
+    if (id === 'filtroCuenta') actualizarFiltroSubcuenta();
     renderMovimientos();
   });
 });
