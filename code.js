@@ -820,7 +820,8 @@ function __selfTest() {
   if (targetAfter.saldo !== 20) throw new Error('Transferencia no acreditó subcuenta destino: ' + targetAfter.saldo);
   const after = reordenarSubcuentas(parent.id, [anotherId, subId]);
   const parentAfter = after.find(c => c.id === parent.id);
-  if (parentAfter.subcuentas[0].id !== anotherId) throw new Error('Reorder falló');
+  const testOrder = parentAfter.subcuentas.filter(s => s.id === anotherId || s.id === subId);
+  if (testOrder.length !== 2 || testOrder[0].id !== anotherId) throw new Error('Reorder falló');
   // Cleanup
   eliminarTransaccion(txSub.id);
   eliminarTransaccion(txTransfer.id);
