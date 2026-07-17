@@ -797,11 +797,20 @@ function __selfTest() {
   const parentWithBoth = withAnother.find(c => c.id === parent.id);
   const anotherId = parentWithBoth.subcuentas.find(s => s.nombre === anotherName).id;
   if (!parentWithBoth.subcuentas.some(s => s.id === subId)) throw new Error('Crear una subcuenta reemplazó la anterior');
+  const txTransfer = guardarTransaccion({
+    tipo: 'transferencia', importe: 20,
+    cuenta_id: parent.id, subcuenta_id: subId,
+    cuenta_destino_id: parent.id, subcuenta_destino_id: anotherId,
+    descripcion: 'self-sub-transfer', fecha: isoHoy_()
+  });
+  const targetAfter = obtenerCuentas().find(c => c.id === parent.id).subcuentas.find(s => s.id === anotherId);
+  if (targetAfter.saldo !== 20) throw new Error('Transferencia no acreditó subcuenta destino: ' + targetAfter.saldo);
   const after = reordenarSubcuentas(parent.id, [anotherId, subId]);
   const parentAfter = after.find(c => c.id === parent.id);
   if (parentAfter.subcuentas[0].id !== anotherId) throw new Error('Reorder falló');
   // Cleanup
   eliminarTransaccion(txSub.id);
+  eliminarTransaccion(txTransfer.id);
   eliminarCuenta(subId);
   eliminarCuenta(anotherId);
 

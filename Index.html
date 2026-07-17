@@ -1274,7 +1274,7 @@ function openTx(id) {
   poblarSelect('#txCuenta', Estado.bootstrap.cuentas, f.cuenta_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCuentaDest', Estado.bootstrap.cuentas, f.cuenta_destino_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (f.tipo === 'ingreso' ? 'ingreso' : 'gasto')), f.categoria_id, c => c.nombre);
-  actualizarSubcuentasTx();
+  actualizarSubcuentasTx(f);
   $('#txDesc').value = f.descripcion || '';
   $('#txImporteDest').value = f.importe_destino || '';
   $('#txRatio').value = f.ratio_conversion || '';
@@ -1305,7 +1305,7 @@ function setTipoTx(tipo) {
 }
 $$('[data-tx-tipo]').forEach(b => b.addEventListener('click', () => setTipoTx(b.dataset.txTipo)));
 
-function actualizarSubcuentasTx() {
+function actualizarSubcuentasTx(preferred) {
   const isTransfer = Estado.txTipo === 'transferencia';
 
   // Subcuenta de origen: visible siempre que la cuenta de origen tenga subcuentas.
@@ -1317,7 +1317,7 @@ function actualizarSubcuentasTx() {
   if (lblO) lblO.textContent = isTransfer ? 'Subcuenta origen' : 'Subcuenta';
   const selO = $('#txSubcuenta');
   if (visOrigen) {
-    const current = Estado.editing && Estado.editing.subcuenta_id;
+    const current = preferred ? preferred.subcuenta_id : selO.value;
     selO.innerHTML = '<option value="">— Ninguna —</option>' + subs.map(s =>
       `<option value="${s.id}" ${s.id === current ? 'selected' : ''}>${escape(s.nombre)}</option>`
     ).join('');
@@ -1332,7 +1332,7 @@ function actualizarSubcuentasTx() {
   $('#wrapSubcuentaDest').style.display = visDest ? '' : 'none';
   const selD = $('#txSubcuentaDest');
   if (visDest) {
-    const currentD = Estado.editing && Estado.editing.subcuenta_destino_id;
+    const currentD = preferred ? preferred.subcuenta_destino_id : selD.value;
     selD.innerHTML = '<option value="">— Ninguna —</option>' + subsD.map(s =>
       `<option value="${s.id}" ${s.id === currentD ? 'selected' : ''}>${escape(s.nombre)}</option>`
     ).join('');
