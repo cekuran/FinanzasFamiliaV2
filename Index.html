@@ -1041,7 +1041,7 @@ function renderCuentas() {
 async function borrarCuenta(id) {
   const c = Estado.bootstrap.cuentas.find(c => c.id === id);
   if (!confirm('¿Eliminar "' + c.nombre + '"? Solo se permite si no tiene movimientos.')) return;
-  try { Estado.bootstrap.cuentas = await call('eliminarCuenta', id); toast('Cuenta eliminada'); renderCuentas(); }
+  try { Estado.bootstrap.cuentas = await call('eliminarCuenta', id); toast('Cuenta eliminada'); refrescarCuentas(); }
   catch (e) { toast('Error: ' + e.message); }
 }
 
@@ -1125,12 +1125,16 @@ function renderRecurrentes() {
 }
 
 function renderConciliar() {
-  $('#conCuenta').innerHTML = Estado.bootstrap.cuentas.map(c => `<option value="${c.id}">${escape(c.nombre)} (${c.moneda})</option>`).join('');
+  poblarConCuenta();
   $('#conFecha').value = new Date().toISOString().slice(0, 10);
   $('#conBanco').value = '';
   $('#conSistema').textContent = '—';
   $('#conDif').textContent = '—';
   $('#conEstado').textContent = 'Selecciona una cuenta e introduce el saldo real.';
+}
+
+function poblarConCuenta() {
+  $('#conCuenta').innerHTML = Estado.bootstrap.cuentas.map(c => `<option value="${c.id}">${escape(c.nombre)} (${c.moneda})</option>`).join('');
 }
 
 async function doConciliar() {
@@ -1400,8 +1404,7 @@ $('#formCuenta').addEventListener('submit', async (e) => {
       saldo_inicial: Number(f.get('saldo_inicial') || 0)
     });
     closeAllSheets();
-    renderCuentas();
-    renderDashboard();
+    refrescarCuentas();
     toast('Cuenta guardada');
   } catch (err) { toast('Error: ' + err.message); }
 });
@@ -1412,8 +1415,7 @@ async function borrarSubcuenta(id, parentId) {
   if (!confirm('¿Eliminar la subcuenta "' + (sub ? sub.nombre : '') + '"?')) return;
   try {
     Estado.bootstrap.cuentas = await call('eliminarCuenta', id);
-    renderCuentas();
-    renderDashboard();
+    refrescarCuentas();
     toast('Subcuenta eliminada');
   } catch (err) { toast('Error: ' + err.message); }
 }
@@ -1451,7 +1453,7 @@ function wireDragReorder() {
       rows.forEach(r => container.appendChild(r));
       try {
         Estado.bootstrap.cuentas = await call('reordenarSubcuentas', parentId, rows.map(r => r.dataset.subId));
-        renderCuentas();
+        refrescarCuentas();
         toast('Orden guardado');
       } catch (err) {
         toast('Error: ' + err.message);
@@ -1571,6 +1573,30 @@ Object.keys(FILTRO_KEY).forEach(id => {
     renderMovimientos();
   });
 });
+
+function limpiarFiltrosInvalidos() {
+  const ctaIds = new Set(), subIds = new Set();
+  for (const c of Estado.bootstrap.cuentas) {
+    ctaIds.add(c.id);
+    for (const s of (c.subcuentas || [])) subIds.add(s.id);
+  }
+  if (Estado.filtros.cuenta_id && !ctaIds.has(Estado.filtros.cuenta_id)) {
+    Estado.filtros.cuenta_id = '';
+    Estado.filtros.subcuenta_id = '';
+  }
+  if (Estado.filtros.subcuenta_id && !subIds.has(Estado.filtros.subcuenta_id)) {
+    Estado.filtros.subcuenta_id = '';
+  }
+}
+
+function refrescarCuentas() {
+  limpiarFiltrosInvalidos();
+  poblarFiltros();
+  poblarConCuenta();
+  renderCuentas();
+  renderDashboard();
+  renderMovimientos();
+}
 
 // === Boot ===
 async function recargar() {
