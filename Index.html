@@ -260,6 +260,7 @@
   .tx-amount { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 16px; text-align: right; }
   .tx-amount.neg { color: var(--error); }
   .tx-amount.pos { color: var(--primary); }
+  .tx-amount.neutral { color: var(--on-surface-variant); }
 
   /* === Account card === */
   .acct { display: flex; align-items: center; gap: var(--s-4); padding: var(--s-4); background: var(--surface-container-low); border: 1px solid var(--outline-variant); border-radius: var(--r-xl); transition: background 0.15s; }
@@ -986,15 +987,15 @@ function txRow(t) {
   const cat = Estado.bootstrap.categorias.find(c => c.id === t.categoria_id);
   const cta = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_id);
   const sub = (cta && t.subcuenta_id) ? (cta.subcuentas || []).find(s => s.id === t.subcuenta_id) : null;
-  const sign = t.tipo === 'ingreso' ? 1 : -1;
-  const cls = sign > 0 ? 'pos' : 'neg';
+  const sign = t.tipo === 'transferencia' ? '' : (t.tipo === 'ingreso' ? '+' : '-');
+  const cls = t.tipo === 'transferencia' ? 'neutral' : (t.tipo === 'ingreso' ? 'pos' : 'neg');
   return `<div class="tx-row">
     <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat ? cat.nombre : 'Otros')}</div>
     <div class="tx-main">
       <div class="tx-title">${escape(t.descripcion || (cat ? cat.nombre : 'Sin descripción'))}</div>
       <div class="tx-sub">${escape(t.fecha || '')} · ${escape(cta ? cta.nombre : '')}${sub ? ' · ' + escape(sub.nombre) : ''} · ${escape(cat ? cat.nombre : '')}</div>
     </div>
-    <div class="tx-amount ${cls}">${sign > 0 ? '+' : '-'}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</div>
+    <div class="tx-amount ${cls}">${sign}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</div>
   </div>`;
 }
 
