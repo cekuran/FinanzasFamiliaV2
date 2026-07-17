@@ -680,6 +680,7 @@
     <div class="field"><label>Cuenta</label><select class="select" name="cuenta_id" id="txCuenta" required></select></div>
     <div class="field" id="wrapSubcuenta" style="display: none;"><label>Subcuenta</label><select class="select" name="subcuenta_id" id="txSubcuenta"><option value="">— Ninguna —</option></select></div>
     <div class="field" id="wrapCuentaDest" style="display: none;"><label>Cuenta destino</label><select class="select" name="cuenta_destino_id" id="txCuentaDest"></select></div>
+    <div class="field" id="wrapSubcuentaDest" style="display: none;"><label>Subcuenta destino</label><select class="select" name="subcuenta_destino_id" id="txSubcuentaDest"><option value="">— Ninguna —</option></select></div>
     <div class="field" id="wrapCategoria"><label>Categoría</label><select class="select" name="categoria_id" id="txCategoria"></select></div>
     <div class="field"><label>Descripción</label><input class="input" type="text" name="descripcion" id="txDesc" placeholder="Ej. Compra semanal"></div>
     <div class="field-row" id="wrapConversion" style="display: none;">
@@ -1305,23 +1306,42 @@ function setTipoTx(tipo) {
 $$('[data-tx-tipo]').forEach(b => b.addEventListener('click', () => setTipoTx(b.dataset.txTipo)));
 
 function actualizarSubcuentasTx() {
-  const ctaId = $('#txCuenta').value;
-  const cta = Estado.bootstrap.cuentas.find(c => c.id === ctaId);
-  const subs = (cta && cta.subcuentas) || [];
   const isTransfer = Estado.txTipo === 'transferencia';
-  const visible = subs.length > 0 && !isTransfer;
-  $('#wrapSubcuenta').style.display = visible ? '' : 'none';
-  const sel = $('#txSubcuenta');
-  if (visible) {
+
+  // Subcuenta de origen: visible siempre que la cuenta de origen tenga subcuentas.
+  const cta = Estado.bootstrap.cuentas.find(c => c.id === $('#txCuenta').value);
+  const subs = (cta && cta.subcuentas) || [];
+  const visOrigen = subs.length > 0;
+  $('#wrapSubcuenta').style.display = visOrigen ? '' : 'none';
+  const lblO = $('#wrapSubcuenta label');
+  if (lblO) lblO.textContent = isTransfer ? 'Subcuenta origen' : 'Subcuenta';
+  const selO = $('#txSubcuenta');
+  if (visOrigen) {
     const current = Estado.editing && Estado.editing.subcuenta_id;
-    sel.innerHTML = '<option value="">— Ninguna —</option>' + subs.map(s =>
+    selO.innerHTML = '<option value="">— Ninguna —</option>' + subs.map(s =>
       `<option value="${s.id}" ${s.id === current ? 'selected' : ''}>${escape(s.nombre)}</option>`
     ).join('');
   } else {
-    sel.value = '';
+    selO.value = '';
+  }
+
+  // Subcuenta de destino: solo en transferencias, si la cuenta destino tiene subcuentas.
+  const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#txCuentaDest').value);
+  const subsD = (ctaD && ctaD.subcuentas) || [];
+  const visDest = isTransfer && subsD.length > 0;
+  $('#wrapSubcuentaDest').style.display = visDest ? '' : 'none';
+  const selD = $('#txSubcuentaDest');
+  if (visDest) {
+    const currentD = Estado.editing && Estado.editing.subcuenta_destino_id;
+    selD.innerHTML = '<option value="">— Ninguna —</option>' + subsD.map(s =>
+      `<option value="${s.id}" ${s.id === currentD ? 'selected' : ''}>${escape(s.nombre)}</option>`
+    ).join('');
+  } else {
+    selD.value = '';
   }
 }
 $('#txCuenta').addEventListener('change', actualizarSubcuentasTx);
+$('#txCuentaDest').addEventListener('change', actualizarSubcuentasTx);
 $('#txRecurrenteSwitch').addEventListener('change', e => {
   $('#wrapRecurrente').style.display = e.target.checked ? 'flex' : 'none';
 });
@@ -1338,6 +1358,7 @@ $('#formTx').addEventListener('submit', async (e) => {
     cuenta_id: f.get('cuenta_id'),
     subcuenta_id: f.get('subcuenta_id') || '',
     cuenta_destino_id: f.get('cuenta_destino_id') || '',
+    subcuenta_destino_id: f.get('subcuenta_destino_id') || '',
     importe_destino: f.get('importe_destino') || '',
     ratio_conversion: f.get('ratio_conversion') || '',
     categoria_id: f.get('categoria_id') || '',

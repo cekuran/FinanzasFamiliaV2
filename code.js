@@ -5,7 +5,7 @@
 const SCHEMA = {
   Cuentas:       ['owner_email','id','parent_id','nombre','tipo','moneda','icono','saldo_inicial','orden','oculta','fecha_creacion'],
   Categorias:    ['owner_email','id','nombre','color','tipo','orden'],
-  Transacciones: ['owner_email','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','importe_destino','ratio_conversion','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion'],
+  Transacciones: ['owner_email','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','subcuenta_destino_id','importe_destino','ratio_conversion','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion'],
   Recurrentes:   ['owner_email','id','plantilla','ultima_generacion','activa'],
   Presupuestos:  ['owner_email','id','anio','mes','categoria_id','importe_esperado'],
   Conciliaciones:['owner_email','id','fecha','cuenta_id','saldo_sistema','saldo_banco','diferencia','notas'],
@@ -206,18 +206,25 @@ function obtenerCuentas() {
     const parentInitial = Number(c.saldo_inicial || 0);
 
     // Txs del padre: golpean esta cuenta y NO están asignadas a una subcuenta
-    // propia de esta cuenta. Una subcuenta_id "huérfana" (de otra cuenta) se
-    // trata como movimiento del padre, no se atribuye a la cuenta ajena.
+    // propia de esta cuenta (ni como origen ni como destino de transferencia).
+    // Una subcuenta "huérfana" (de otra cuenta) se trata como movimiento del
+    // padre, no se atribuye a la cuenta ajena.
     const parentTxs = txs.filter(t =>
-      (t.cuenta_id === c.id || t.cuenta_destino_id === c.id) && !(t.subcuenta_id && subIds.has(t.subcuenta_id))
+      (t.cuenta_id === c.id || t.cuenta_destino_id === c.id) &&
+      !(t.cuenta_id === c.id && t.subcuenta_id && subIds.has(t.subcuenta_id)) &&
+      !(t.cuenta_destino_id === c.id && t.subcuenta_destino_id && subIds.has(t.subcuenta_destino_id))
     );
 
     const subcuentas = subs.map(s => {
       const subInitial = Number(s.saldo_inicial || 0);
-      // Solo cuentan las txs cuyo cuenta_id es este mismo padre; así una
-      // subcuenta_id que pertenece a otra cuenta no contamina este saldo.
+      // Cuenta como movimiento de la subcuenta cuando es su origen (cuenta_id)
+      // o el destino de una transferencia (cuenta_destino_id). En ambos casos
+      // la cuenta implicada debe ser este mismo padre.
       const subDelta = txs
-        .filter(t => t.subcuenta_id === s.id && t.cuenta_id === c.id)
+        .filter(t =>
+          (t.subcuenta_id === s.id && t.cuenta_id === c.id) ||
+          (t.subcuenta_destino_id === s.id && t.cuenta_destino_id === c.id)
+        )
         .reduce((sum, t) => sum + deltaSubcuenta_(t, s.id), 0);
       return {
         id: s.id, nombre: s.nombre, parent_id: c.id,
@@ -244,7 +251,10 @@ function obtenerCuentas() {
         .reduce((s, t) => s + deltaCuenta_(t, c.id), 0);
       const subDeltaK = subcuentas.reduce((s, sub) => {
         const dK = txs
-          .filter(t => t.subcuenta_id === sub.id && t.cuenta_id === c.id && String(t.fecha).slice(0, 7) <= k)
+          .filter(t =>
+            ((t.subcuenta_id === sub.id && t.cuenta_id === c.id) ||
+             (t.subcuenta_destino_id === sub.id && t.cuenta_destino_id === c.id)) &&
+            String(t.fecha).slice(0, 7) <= k)
           .reduce((sd, t) => sd + deltaSubcuenta_(t, sub.id), 0);
         return s + dK;
       }, 0);
@@ -275,12 +285,18 @@ function deltaCuenta_(t, cuentaId) {
 }
 
 // Variación de saldo que aporta una transacción a una subcuenta concreta.
-// Solo gasto/ingreso: las transferencias no soportan subcuenta_id.
+// Gasto/ingreso usan subcuenta_id. Las transferencias restan de la subcuenta
+// de origen (subcuenta_id) y suman a la subcuenta de destino (subcuenta_destino_id).
 function deltaSubcuenta_(t, subId) {
-  if (t.subcuenta_id !== subId) return 0;
-  if (t.tipo === 'ingreso') return Number(t.importe || 0);
-  if (t.tipo === 'gasto') return -Number(t.importe || 0);
-  return 0;
+  let d = 0;
+  if (t.subcuenta_id === subId) {
+    if (t.tipo === 'ingreso') d += Number(t.importe || 0);
+    else if (t.tipo === 'gasto' || t.tipo === 'transferencia') d += -Number(t.importe || 0);
+  }
+  if (t.subcuenta_destino_id === subId && t.tipo === 'transferencia') {
+    d += Number(t.importe_destino || t.importe || 0);
+  }
+  return d;
 }
 
 // Sanea referencias subcuenta_id huérfanas: si una transacción apunta a una
@@ -294,11 +310,17 @@ function normalizarSubcuentasHuerfanas_(owner) {
   );
   let cambios = false;
   const txs = leerHoja('Transacciones').map(t => {
-    if (t.owner_email === owner && t.subcuenta_id && !validas.has(t.cuenta_id + '|' + t.subcuenta_id)) {
+    if (t.owner_email !== owner) return t;
+    let nuevo = t;
+    if (t.subcuenta_id && !validas.has(t.cuenta_id + '|' + t.subcuenta_id)) {
       cambios = true;
-      return Object.assign({}, t, { subcuenta_id: '' });
+      nuevo = Object.assign({}, nuevo, { subcuenta_id: '' });
     }
-    return t;
+    if (t.subcuenta_destino_id && !validas.has(t.cuenta_destino_id + '|' + t.subcuenta_destino_id)) {
+      cambios = true;
+      nuevo = Object.assign({}, nuevo, { subcuenta_destino_id: '' });
+    }
+    return nuevo;
   });
   if (cambios) escribirHoja('Transacciones', txs);
   return cambios;
@@ -356,7 +378,8 @@ function eliminarCuenta(id) {
   }
   const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && (
     (t.cuenta_id === id || t.cuenta_destino_id === id) ||
-    (esSub && t.subcuenta_id === id && t.cuenta_id === cuenta.parent_id)
+    (esSub && t.subcuenta_id === id && t.cuenta_id === cuenta.parent_id) ||
+    (esSub && t.subcuenta_destino_id === id && t.cuenta_destino_id === cuenta.parent_id)
   ));
   if (txs.length) throw new Error((esSub ? 'La subcuenta' : 'La cuenta') + ' tiene ' + txs.length + ' movimientos. Reasígnalos o elimínalos primero.');
   eliminarFila('Cuentas', owner, id);
@@ -448,10 +471,16 @@ function guardarTransaccion(tx) {
   if (!fecha) throw new Error('Fecha inválida');
   let subcuenta_id = '';
   if (tx.subcuenta_id) {
-    if (tipo === 'transferencia') throw new Error('Subcuenta no aplica a transferencias');
     const sub = leerHoja('Cuentas').find(c => c.owner_email === owner && c.id === tx.subcuenta_id && c.parent_id === tx.cuenta_id);
     if (!sub) throw new Error('Subcuenta no encontrada o no pertenece a la cuenta');
     subcuenta_id = tx.subcuenta_id;
+  }
+  let subcuenta_destino_id = '';
+  if (tx.subcuenta_destino_id) {
+    if (tipo !== 'transferencia') throw new Error('Subcuenta destino solo aplica a transferencias');
+    const subd = leerHoja('Cuentas').find(c => c.owner_email === owner && c.id === tx.subcuenta_destino_id && c.parent_id === tx.cuenta_destino_id);
+    if (!subd) throw new Error('Subcuenta destino no encontrada o no pertenece a la cuenta destino');
+    subcuenta_destino_id = tx.subcuenta_destino_id;
   }
   const fila = {
     owner_email: owner,
@@ -463,6 +492,7 @@ function guardarTransaccion(tx) {
     cuenta_id: tx.cuenta_id,
     subcuenta_id: subcuenta_id,
     cuenta_destino_id: tx.cuenta_destino_id || '',
+    subcuenta_destino_id: subcuenta_destino_id,
     importe_destino: tx.importe_destino ? Number(tx.importe_destino) : '',
     ratio_conversion: tx.ratio_conversion ? Number(tx.ratio_conversion) : '',
     categoria_id: tx.categoria_id || '',
@@ -523,6 +553,7 @@ function upsertRecurrenteBase_(owner, tx) {
     tipo: tx.tipo, importe: Number(tx.importe), cuenta_id: tx.cuenta_id,
     subcuenta_id: tx.subcuenta_id || '',
     cuenta_destino_id: tx.cuenta_destino_id || '',
+    subcuenta_destino_id: tx.subcuenta_destino_id || '',
     importe_destino: tx.importe_destino ? Number(tx.importe_destino) : '',
     ratio_conversion: tx.ratio_conversion ? Number(tx.ratio_conversion) : '',
     categoria_id: tx.categoria_id || '', descripcion: tx.descripcion || '',
@@ -561,6 +592,7 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
             cuenta_id: p.cuenta_id,
             subcuenta_id: p.subcuenta_id || '',
             cuenta_destino_id: p.cuenta_destino_id || '',
+            subcuenta_destino_id: p.subcuenta_destino_id || '',
             importe_destino: p.importe_destino || '',
             ratio_conversion: p.ratio_conversion || '',
             categoria_id: p.categoria_id || '', descripcion: p.descripcion || '',
