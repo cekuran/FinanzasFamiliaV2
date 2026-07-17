@@ -345,7 +345,7 @@ function guardarCuenta(cuenta) {
   // Al editar, preservamos metadatos que el cliente no envía (orden, icono y
   // fecha de creación) para no reiniciarlos y romper el orden de subcuentas.
   const existente = cuenta.id ? todas.find(c => c.owner_email === owner && c.id === cuenta.id) : null;
-  const fila = Object.assign({
+  const fila = {
     owner_email: owner,
     id: cuenta.id || uid_('cta'),
     parent_id: cuenta.parent_id || '',
@@ -357,7 +357,7 @@ function guardarCuenta(cuenta) {
     orden: cuenta.orden || (existente && existente.orden) || 99,
     oculta: !!cuenta.oculta,
     fecha_creacion: (existente && existente.fecha_creacion) || isoAhora_()
-  }, cuenta);
+  };
   upsertFila('Cuentas', fila);
   return obtenerCuentas();
 }
@@ -774,15 +774,11 @@ function __selfTest() {
 
   // ponytail: smoke-test subcuentas + reorder + tx con subcuenta_id
   const parent = cuentas[0];
-  const subId = uid_('cta');
-  const ctas = leerHoja('Cuentas');
-  const i = ctas.findIndex(c => c.id === parent.id);
-  ctas.splice(i + 1, 0, {
-    owner_email: owner, id: subId, parent_id: parent.id,
-    nombre: 'self-sub', tipo: parent.tipo, moneda: parent.moneda, icono: 'savings',
-    saldo_inicial: 100, orden: 99, oculta: false, fecha_creacion: isoAhora_()
+  const subName = 'self-sub-' + Utilities.getUuid().slice(0, 8);
+  const withSub = guardarCuenta({
+    parent_id: parent.id, nombre: subName, saldo_inicial: 100
   });
-  escribirHoja('Cuentas', ctas);
+  const subId = withSub.find(c => c.id === parent.id).subcuentas.find(s => s.nombre === subName).id;
   const txSub = guardarTransaccion({
     tipo: 'gasto', importe: 30, cuenta_id: parent.id, subcuenta_id: subId,
     categoria_id: cat[0].id, descripcion: 'self-sub-tx', fecha: isoHoy_()
@@ -793,15 +789,14 @@ function __selfTest() {
   // Modelo de partición: el saldo_inicial (100) de la subcuenta ya forma parte del
   // saldo del padre, así que crearla no cambia el total; solo el gasto (30) lo baja.
   if (fresh.saldo !== parent.saldo - 30) throw new Error('Saldo padre incorrecto: ' + fresh.saldo);
-  // Reorder
-  const ctas2 = leerHoja('Cuentas');
-  const anotherId = uid_('cta');
-  ctas2.splice(ctas2.findIndex(c => c.id === parent.id) + 2, 0, {
-    owner_email: owner, id: anotherId, parent_id: parent.id,
-    nombre: 'self-sub-2', tipo: parent.tipo, moneda: parent.moneda, icono: 'savings',
-    saldo_inicial: 0, orden: 99, oculta: false, fecha_creacion: isoAhora_()
+  // Reorder y segunda alta sin reemplazar la primera
+  const anotherName = 'self-sub-' + Utilities.getUuid().slice(0, 8);
+  const withAnother = guardarCuenta({
+    parent_id: parent.id, nombre: anotherName, saldo_inicial: 0
   });
-  escribirHoja('Cuentas', ctas2);
+  const parentWithBoth = withAnother.find(c => c.id === parent.id);
+  const anotherId = parentWithBoth.subcuentas.find(s => s.nombre === anotherName).id;
+  if (!parentWithBoth.subcuentas.some(s => s.id === subId)) throw new Error('Crear una subcuenta reemplazó la anterior');
   const after = reordenarSubcuentas(parent.id, [anotherId, subId]);
   const parentAfter = after.find(c => c.id === parent.id);
   if (parentAfter.subcuentas[0].id !== anotherId) throw new Error('Reorder falló');
