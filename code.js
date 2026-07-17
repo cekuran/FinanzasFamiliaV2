@@ -164,6 +164,7 @@ function doGet() {
   const owner = email_();
   migrarEsquema();
   sembrar(owner);
+  normalizarSubcuentasHuerfanas_(owner);
   generarRecurrentesPendientes_(owner, new Date());
   return HtmlService.createTemplateFromFile('Index').evaluate()
     .setTitle('Finanzas Familia')
@@ -175,6 +176,7 @@ function bootstrap() {
   const owner = email_();
   migrarEsquema();
   sembrar(owner);
+  normalizarSubcuentasHuerfanas_(owner);
   generarRecurrentesPendientes_(owner, new Date());
   return {
     sesion: { email: owner },
@@ -200,14 +202,23 @@ function obtenerCuentas() {
   const top = cuentas.filter(c => !c.parent_id);
   return top.map(c => {
     const subs = cuentas.filter(x => x.parent_id === c.id);
+    const subIds = new Set(subs.map(x => x.id));
     const parentInitial = Number(c.saldo_inicial || 0);
 
-    // Txs al padre sin subcuenta asignada (incluye transfers)
-    const parentTxs = txs.filter(t => (t.cuenta_id === c.id || t.cuenta_destino_id === c.id) && !t.subcuenta_id);
+    // Txs del padre: golpean esta cuenta y NO están asignadas a una subcuenta
+    // propia de esta cuenta. Una subcuenta_id "huérfana" (de otra cuenta) se
+    // trata como movimiento del padre, no se atribuye a la cuenta ajena.
+    const parentTxs = txs.filter(t =>
+      (t.cuenta_id === c.id || t.cuenta_destino_id === c.id) && !(t.subcuenta_id && subIds.has(t.subcuenta_id))
+    );
 
     const subcuentas = subs.map(s => {
       const subInitial = Number(s.saldo_inicial || 0);
-      const subDelta = txs.filter(t => t.subcuenta_id === s.id).reduce((sum, t) => sum + deltaSubcuenta_(t, s.id), 0);
+      // Solo cuentan las txs cuyo cuenta_id es este mismo padre; así una
+      // subcuenta_id que pertenece a otra cuenta no contamina este saldo.
+      const subDelta = txs
+        .filter(t => t.subcuenta_id === s.id && t.cuenta_id === c.id)
+        .reduce((sum, t) => sum + deltaSubcuenta_(t, s.id), 0);
       return {
         id: s.id, nombre: s.nombre, parent_id: c.id,
         saldo_inicial: subInitial,
@@ -233,7 +244,7 @@ function obtenerCuentas() {
         .reduce((s, t) => s + deltaCuenta_(t, c.id), 0);
       const subDeltaK = subcuentas.reduce((s, sub) => {
         const dK = txs
-          .filter(t => t.subcuenta_id === sub.id && String(t.fecha).slice(0, 7) <= k)
+          .filter(t => t.subcuenta_id === sub.id && t.cuenta_id === c.id && String(t.fecha).slice(0, 7) <= k)
           .reduce((sd, t) => sd + deltaSubcuenta_(t, sub.id), 0);
         return s + dK;
       }, 0);
@@ -270,6 +281,27 @@ function deltaSubcuenta_(t, subId) {
   if (t.tipo === 'ingreso') return Number(t.importe || 0);
   if (t.tipo === 'gasto') return -Number(t.importe || 0);
   return 0;
+}
+
+// Sanea referencias subcuenta_id huérfanas: si una transacción apunta a una
+// subcuenta que no pertenece a su propia cuenta (datos heredados o corruptos),
+// se borra la subcuenta_id para que el movimiento quede solo en su cuenta.
+// Idempotente: solo escribe cuando encuentra algo que corregir.
+function normalizarSubcuentasHuerfanas_(owner) {
+  const cuentas = leerHoja('Cuentas').filter(c => c.owner_email === owner);
+  const validas = new Set(
+    cuentas.filter(c => c.parent_id).map(c => c.parent_id + '|' + c.id)
+  );
+  let cambios = false;
+  const txs = leerHoja('Transacciones').map(t => {
+    if (t.owner_email === owner && t.subcuenta_id && !validas.has(t.cuenta_id + '|' + t.subcuenta_id)) {
+      cambios = true;
+      return Object.assign({}, t, { subcuenta_id: '' });
+    }
+    return t;
+  });
+  if (cambios) escribirHoja('Transacciones', txs);
+  return cambios;
 }
 
 function guardarCuenta(cuenta) {
@@ -324,7 +356,7 @@ function eliminarCuenta(id) {
   }
   const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && (
     (t.cuenta_id === id || t.cuenta_destino_id === id) ||
-    (esSub && t.subcuenta_id === id)
+    (esSub && t.subcuenta_id === id && t.cuenta_id === cuenta.parent_id)
   ));
   if (txs.length) throw new Error((esSub ? 'La subcuenta' : 'La cuenta') + ' tiene ' + txs.length + ' movimientos. Reasígnalos o elimínalos primero.');
   eliminarFila('Cuentas', owner, id);
