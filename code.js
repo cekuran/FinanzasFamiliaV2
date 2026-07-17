@@ -16,7 +16,13 @@ const HOJAS = Object.keys(SCHEMA);
 
 const SEMILLA = {
   Cuentas: [
-    { nombre: 'BBVA Nómina', tipo: 'activo', moneda: 'EUR', icono: 'account_balance', saldo_inicial: 0, orden: 1 },
+    {
+      nombre: 'BBVA Nómina', tipo: 'activo', moneda: 'EUR', icono: 'account_balance', saldo_inicial: 0, orden: 1,
+      subcuentas: [
+        { nombre: 'Gastos diarios', saldo_inicial: 0, orden: 1 },
+        { nombre: 'Recibos', saldo_inicial: 0, orden: 2 }
+      ]
+    },
     { nombre: 'Caja de Ahorro', tipo: 'activo', moneda: 'EUR', icono: 'savings', saldo_inicial: 0, orden: 2 },
     { nombre: 'Tarjeta Visa', tipo: 'pasivo', moneda: 'EUR', icono: 'credit_card', saldo_inicial: 0, orden: 3 }
   ],
@@ -148,9 +154,16 @@ function sembrar(owner) {
   // Si ya tiene algo, no duplicar
   if (leerHoja('Cuentas').some(c => c.owner_email === owner)) return;
 
-  const cuentas = SEMILLA.Cuentas.map(c => Object.assign({
-    owner_email: owner, id: uid_('cta'), oculta: false, fecha_creacion: isoAhora_()
-  }, c));
+  const cuentas = SEMILLA.Cuentas.flatMap(c => {
+    const parent = Object.assign({
+      owner_email: owner, id: uid_('cta'), parent_id: '', oculta: false, fecha_creacion: isoAhora_()
+    }, c);
+    return [parent].concat((c.subcuentas || []).map((s, i) => Object.assign({
+      owner_email: owner, id: uid_('cta'), parent_id: parent.id,
+      tipo: parent.tipo, moneda: parent.moneda, icono: 'savings',
+      saldo_inicial: 0, orden: i + 1, oculta: false, fecha_creacion: isoAhora_()
+    }, s)));
+  });
   escribirHoja('Cuentas', leerHoja('Cuentas').concat(cuentas));
 
   const cats = SEMILLA.Categorias.map(c => Object.assign({
