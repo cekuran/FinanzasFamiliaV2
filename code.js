@@ -906,13 +906,23 @@ function __selfTest() {
   const parentWithBoth = withAnother.find(c => c.id === parent.id);
   const anotherId = parentWithBoth.subcuentas.find(s => s.nombre === anotherName).id;
   if (!parentWithBoth.subcuentas.some(s => s.id === subId)) throw new Error('Crear una subcuenta reemplazó la anterior');
+  // La validación rechaza mismo origen/destino, así que creamos una cuenta
+  // destino separada con sus propias subcuentas para probar transferencias
+  // y repartos entre cuentas distintas.
+  const destParent = guardarCuenta({
+    nombre: 'self-dest-' + Utilities.getUuid().slice(0, 8),
+    tipo: 'activo', moneda: 'EUR', saldo_inicial: 0
+  }).find(c => c.nombre.startsWith('self-dest-'));
+  const destSubName = 'self-dest-sub-' + Utilities.getUuid().slice(0, 8);
+  const withDestSub = guardarCuenta({ parent_id: destParent.id, nombre: destSubName, saldo_inicial: 0 });
+  const destSubId = withDestSub.find(c => c.id === destParent.id).subcuentas.find(s => s.nombre === destSubName).id;
   const txTransfer = guardarTransaccion({
     tipo: 'transferencia', importe: 20,
     cuenta_id: parent.id, subcuenta_id: subId,
-    cuenta_destino_id: parent.id, subcuenta_destino_id: anotherId,
+    cuenta_destino_id: destParent.id, subcuenta_destino_id: destSubId,
     descripcion: 'self-sub-transfer', fecha: isoHoy_()
   });
-  const targetAfter = obtenerCuentas().find(c => c.id === parent.id).subcuentas.find(s => s.id === anotherId);
+  const targetAfter = obtenerCuentas().find(c => c.id === destParent.id).subcuentas.find(s => s.id === destSubId);
   if (targetAfter.saldo !== 20) throw new Error('Transferencia no acreditó subcuenta destino: ' + targetAfter.saldo);
   const after = reordenarSubcuentas(parent.id, [anotherId, subId]);
   const parentAfter = after.find(c => c.id === parent.id);
@@ -923,14 +933,15 @@ function __selfTest() {
   // debe coincidir con el importe total, y cada subcuenta destino recibe su parte.
   const splitSubAName = 'self-split-a-' + Utilities.getUuid().slice(0, 8);
   const splitSubBName = 'self-split-b-' + Utilities.getUuid().slice(0, 8);
-  const withSplitSubs = guardarCuenta({ parent_id: parent.id, nombre: splitSubAName, saldo_inicial: 0 });
-  const splitSubA = withSplitSubs.find(c => c.id === parent.id).subcuentas.find(s => s.nombre === splitSubAName).id;
-  const withSplitSubs2 = guardarCuenta({ parent_id: parent.id, nombre: splitSubBName, saldo_inicial: 0 });
-  const splitSubB = withSplitSubs2.find(c => c.id === parent.id).subcuentas.find(s => s.nombre === splitSubBName).id;
+  guardarCuenta({ parent_id: destParent.id, nombre: splitSubAName, saldo_inicial: 0 });
+  guardarCuenta({ parent_id: destParent.id, nombre: splitSubBName, saldo_inicial: 0 });
+  const destCtas = obtenerCuentas().find(c => c.id === destParent.id);
+  const splitSubA = destCtas.subcuentas.find(s => s.nombre === splitSubAName).id;
+  const splitSubB = destCtas.subcuentas.find(s => s.nombre === splitSubBName).id;
   const txSplit = guardarTransaccion({
     tipo: 'transferencia', importe: 50,
     cuenta_id: parent.id,
-    cuenta_destino_id: parent.id,
+    cuenta_destino_id: destParent.id,
     reparto_destino: [
       { subcuenta_id: splitSubA, importe: 30 },
       { subcuenta_id: splitSubB, importe: 20 }
@@ -947,7 +958,7 @@ function __selfTest() {
   try {
     guardarTransaccion({
       tipo: 'transferencia', importe: 50,
-      cuenta_id: parent.id, cuenta_destino_id: parent.id,
+      cuenta_id: parent.id, cuenta_destino_id: destParent.id,
       reparto_destino: [
         { subcuenta_id: splitSubA, importe: 30 },
         { subcuenta_id: splitSubB, importe: 15 }
@@ -963,8 +974,10 @@ function __selfTest() {
   eliminarTransaccion(txSplit.id);
   eliminarCuenta(subId);
   eliminarCuenta(anotherId);
+  eliminarCuenta(destSubId);
   eliminarCuenta(splitSubA);
   eliminarCuenta(splitSubB);
+  eliminarCuenta(destParent.id);
 
   return 'ok ' + cuentas.length + ' cuentas, ' + cat.length + ' categorías, diferencia=' + conciliado.diferencia;
 }
