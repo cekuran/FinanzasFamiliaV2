@@ -1411,6 +1411,15 @@ function actualizarSubcuentasTx(preferred) {
     selO.value = '';
   }
 
+  // Cuenta destino: excluir la cuenta origen para evitar transferencias a sí misma.
+  const sourceId = cta ? cta.id : '';
+  const destCtas = Estado.bootstrap.cuentas.filter(c => c.id !== sourceId);
+  const prevDest = preferred ? preferred.cuenta_destino_id : $('#txCuentaDest').value;
+  const destVal = destCtas.some(c => c.id === prevDest) ? prevDest : '';
+  $('#txCuentaDest').innerHTML = '<option value="">—</option>' + destCtas.map(c =>
+    `<option value="${c.id}" ${c.id === destVal ? 'selected' : ''}>${escape(c.nombre + ' (' + c.moneda + ')')}</option>`
+  ).join('');
+
   // Reparto destino: solo transferencias; si la cuenta destino tiene subcuentas,
   // se muestra la lista dinámica para repartir el importe entre varias.
   const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#txCuentaDest').value);
@@ -1426,7 +1435,7 @@ function actualizarSubcuentasTx(preferred) {
   // Si la cuenta destino cambió y los ids seleccionados ya no existen, se limpia.
   const validIds = new Set(subsD.map(s => s.id));
   const preferido = parseRepartoFromTx_(preferred);
-  if (preferred) {
+  if (preferido && preferido.length) {
     Estado.txRepartoDest = preferido.filter(r => validIds.has(r.subcuenta_id));
   } else if (Estado.txRepartoDest.length && Estado._lastCtaDestinoId !== $('#txCuentaDest').value) {
     Estado.txRepartoDest = Estado.txRepartoDest.filter(r => validIds.has(r.subcuenta_id));

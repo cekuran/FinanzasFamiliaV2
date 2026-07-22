@@ -611,6 +611,7 @@ function guardarTransaccion(tx) {
     fecha_creacion: tx.fecha_creacion || isoAhora_()
   };
   if (fila.tipo === 'transferencia' && !fila.cuenta_destino_id) throw new Error('Cuenta destino obligatoria en transferencia');
+  if (fila.tipo === 'transferencia' && fila.cuenta_destino_id === fila.cuenta_id) throw new Error('La cuenta destino no puede ser la misma que la cuenta origen');
   if (fila.tipo === 'transferencia' && fila.ratio_conversion && !(fila.importe_destino > 0)) {
     throw new Error('Falta importe destino o ratio de conversión');
   }
