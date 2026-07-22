@@ -700,6 +700,7 @@
     <div class="field-row" id="wrapConversion" style="display: none;">
       <div class="field"><label>Importe destino</label><input class="input" type="number" step="0.01" name="importe_destino" id="txImporteDest"></div>
       <div class="field"><label>Ratio (1 origen = X destino)</label><input class="input" type="number" step="0.000001" name="ratio_conversion" id="txRatio"></div>
+      <div class="body-sm" id="conversionHint" style="grid-column: 1 / -1; color: var(--on-surface-variant); margin-top: 4px;"></div>
     </div>
     <div class="field"><label>Estado</label>
       <select class="select" name="estado" id="txEstado">
@@ -846,6 +847,8 @@
 const EUR = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const fmtMoneda = (v, m) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: m || 'EUR', maximumFractionDigits: 2 }).format(Number(v || 0));
 const fmtNum = (v, m) => fmtMoneda(v, m);
+const fmtDec = (v, dec = 2) => Number(v || 0).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const fmtRatio = (v) => Number(v || 0).toLocaleString('es-ES', { maximumFractionDigits: 6 });
 const escape = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const ICONOS = {
@@ -1358,6 +1361,8 @@ function openTx(id) {
   $('#txDesc').value = f.descripcion || '';
   $('#txImporteDest').value = f.importe_destino || '';
   $('#txRatio').value = f.ratio_conversion || '';
+  if (Estado.txTipo === 'transferencia' && !$('#txRatio').value) $('#txRatio').value = '1';
+  syncDestino();
   $('#txEstado').value = f.estado || 'pendiente';
   $('#txNotas').value = f.notas || '';
   // Pasar `f` a actualizarSubcuentasTx para que pinte el reparto desde
@@ -1386,7 +1391,9 @@ function setTipoTx(tipo) {
   $('#wrapCategoria').style.display = tipo === 'transferencia' ? 'none' : '';
   poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (tipo === 'ingreso' ? 'ingreso' : 'gasto')), '', c => c.nombre);
   if (tipo !== 'transferencia') Estado.txRepartoDest = [];
+  if (tipo === 'transferencia' && !$('#txRatio').value) $('#txRatio').value = '1';
   actualizarSubcuentasTx();
+  syncDestino();
   actualizarTotalReparto();
 }
 $$('[data-tx-tipo]').forEach(b => b.addEventListener('click', () => setTipoTx(b.dataset.txTipo)));
@@ -1521,6 +1528,23 @@ function destinoTotalTx_() {
   return Number($('#txImporte').value || 0);
 }
 
+function syncDestino() {
+  updateConversionHint();
+  if (Estado.txTipo !== 'transferencia') return;
+  const src = Number($('#txImporte').value || 0);
+  const ratio = Number($('#txRatio').value || 0);
+  if (ratio > 0) $('#txImporteDest').value = (src * ratio).toFixed(2);
+}
+
+function updateConversionHint() {
+  const hint = $('#conversionHint');
+  if (!hint) return;
+  if (Estado.txTipo !== 'transferencia') { hint.textContent = ''; return; }
+  const src = Number($('#txImporte').value || 0);
+  const ratio = Number($('#txRatio').value || 0);
+  hint.textContent = fmtDec(src) + ' × ' + fmtRatio(ratio) + ' = ' + fmtDec(src * ratio);
+}
+
 function actualizarTotalReparto() {
   const total = destinoTotalTx_();
   const suma = Estado.txRepartoDest.reduce((s, r) => s + Number(r.importe || 0), 0);
@@ -1537,9 +1561,9 @@ function actualizarTotalReparto() {
 $('#txCuenta').addEventListener('change', () => actualizarSubcuentasTx());
 $('#txCuentaDest').addEventListener('change', () => actualizarSubcuentasTx());
 $('#btnAddRepartoDest').addEventListener('click', addRepartoRow);
-$('#txImporte').addEventListener('input', actualizarTotalReparto);
+$('#txImporte').addEventListener('input', () => { syncDestino(); actualizarTotalReparto(); });
 $('#txImporteDest').addEventListener('input', actualizarTotalReparto);
-$('#txRatio').addEventListener('input', actualizarTotalReparto);
+$('#txRatio').addEventListener('input', () => { syncDestino(); actualizarTotalReparto(); });
 $('#txRecurrenteSwitch').addEventListener('change', e => {
   $('#wrapRecurrente').style.display = e.target.checked ? 'flex' : 'none';
 });
