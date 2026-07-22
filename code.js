@@ -948,7 +948,7 @@ function __selfTest() {
     ],
     descripcion: 'self-split-transfer', fecha: isoHoy_()
   });
-  const afterSplit = obtenerCuentas().find(c => c.id === parent.id).subcuentas;
+  const afterSplit = obtenerCuentas().find(c => c.id === destParent.id).subcuentas;
   const subAAfter = afterSplit.find(s => s.id === splitSubA);
   const subBAfter = afterSplit.find(s => s.id === splitSubB);
   if (!subAAfter || subAAfter.saldo !== 30) throw new Error('Reparto no acreditó subA: ' + (subAAfter && subAAfter.saldo));
