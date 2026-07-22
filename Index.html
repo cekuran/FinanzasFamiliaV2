@@ -346,6 +346,14 @@
 
   .legend { display: flex; gap: var(--s-4); font-size: 12px; color: var(--on-surface-variant); }
   .legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+  /* Reparto destino: lista de subcuentas con su importe dentro de la tx sheet */
+  .reparto-row { display: flex; gap: 4px; align-items: center; }
+  .reparto-row .select { flex: 2; }
+  .reparto-row .input { flex: 1; }
+  .reparto-row .icon-btn { flex: 0; }
+  .reparto-total-ok { color: var(--primary) !important; }
+  .reparto-total-bad { color: var(--error) !important; }
 </style>
 </head>
 <body>
@@ -681,7 +689,12 @@
     <div class="field"><label>Cuenta</label><select class="select" name="cuenta_id" id="txCuenta" required></select></div>
     <div class="field" id="wrapSubcuenta" style="display: none;"><label>Subcuenta</label><select class="select" name="subcuenta_id" id="txSubcuenta"><option value="">— Ninguna —</option></select></div>
     <div class="field" id="wrapCuentaDest" style="display: none;"><label>Cuenta destino</label><select class="select" name="cuenta_destino_id" id="txCuentaDest"></select></div>
-    <div class="field" id="wrapSubcuentaDest" style="display: none;"><label>Subcuenta destino</label><select class="select" name="subcuenta_destino_id" id="txSubcuentaDest"><option value="">— Ninguna —</option></select></div>
+    <div class="field" id="wrapRepartoDest" style="display: none;">
+      <label>Subcuentas destino</label>
+      <div id="repartoDestList" style="display: flex; flex-direction: column; gap: 4px;"></div>
+      <button type="button" class="btn btn-sm btn-outline" id="btnAddRepartoDest" style="margin-top: 6px; align-self: flex-start;">+ Añadir destino</button>
+      <div id="repartoDestTotal" class="body-sm" style="margin-top: 6px; color: var(--on-surface-variant);">Total: 0,00 / 0,00 €</div>
+    </div>
     <div class="field" id="wrapCategoria"><label>Categoría</label><select class="select" name="categoria_id" id="txCategoria"></select></div>
     <div class="field"><label>Descripción</label><input class="input" type="text" name="descripcion" id="txDesc" placeholder="Ej. Compra semanal"></div>
     <div class="field-row" id="wrapConversion" style="display: none;">
@@ -873,6 +886,7 @@ const Estado = {
   filtros: { cuenta_id: '', subcuenta_id: '', tipo: '', desde: '', hasta: '', q: '' },
   pres: { anio: new Date().getFullYear(), mes: new Date().getMonth() + 1, asignado: {} },
   txTipo: 'gasto',
+  txRepartoDest: [],
   editing: null,
   recPlantillaId: ''
 };
@@ -1002,13 +1016,29 @@ function txRow(t) {
   const cta = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_id);
   const sub = (cta && t.subcuenta_id) ? (cta.subcuentas || []).find(s => s.id === t.subcuenta_id) : null;
   const ctaD = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_destino_id);
-  const subD = (ctaD && t.subcuenta_destino_id) ? (ctaD.subcuentas || []).find(s => s.id === t.subcuenta_destino_id) : null;
   const isTransfer = t.tipo === 'transferencia';
+  const reparto = isTransfer ? parseRepartoFromTx_(t) || [] : [];
+  const subD = (ctaD && t.subcuenta_destino_id && !reparto.length)
+    ? (ctaD.subcuentas || []).find(s => s.id === t.subcuenta_destino_id)
+    : null;
   const sign = isTransfer ? '' : (t.tipo === 'ingreso' ? '+' : '-');
   const cls = isTransfer ? 'neutral' : (t.tipo === 'ingreso' ? 'pos' : 'neg');
   const origen = escape(cta ? cta.nombre : '—') + (sub ? ' · ' + escape(sub.nombre) : '');
+  const detalleDest = isTransfer
+    ? (() => {
+        const ctaDNombre = escape(ctaD ? ctaD.nombre : '—');
+        if (reparto.length) {
+          const items = reparto.map(r => {
+            const sd = ctaD ? (ctaD.subcuentas || []).find(s => s.id === r.subcuenta_id) : null;
+            return escape(sd ? sd.nombre : '—') + ' ' + fmtMoneda(r.importe, ctaD ? ctaD.moneda : 'EUR');
+          }).join(' · ');
+          return '→ ' + ctaDNombre + ' (' + items + ')';
+        }
+        return '→ ' + ctaDNombre + (subD ? ' · ' + escape(subD.nombre) : '');
+      })()
+    : '';
   const detalle = isTransfer
-    ? origen + ' → ' + escape(ctaD ? ctaD.nombre : '—') + (subD ? ' · ' + escape(subD.nombre) : '')
+    ? origen + ' ' + detalleDest
     : origen + ' · ' + escape(cat ? cat.nombre : '—');
   return `<div class="tx-row">
     <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat)}</div>
@@ -1074,7 +1104,12 @@ function renderMovimientos() {
   const f = Estado.filtros;
   let lista = Estado.bootstrap.transacciones.slice();
   if (f.cuenta_id) lista = lista.filter(t => t.cuenta_id === f.cuenta_id || t.cuenta_destino_id === f.cuenta_id);
-  if (f.subcuenta_id) lista = lista.filter(t => t.subcuenta_id === f.subcuenta_id || t.subcuenta_destino_id === f.subcuenta_id);
+  if (f.subcuenta_id) lista = lista.filter(t => {
+    if (t.subcuenta_id === f.subcuenta_id) return true;
+    if (t.subcuenta_destino_id === f.subcuenta_id) return true;
+    const rep = parseRepartoFromTx_(t);
+    return rep ? rep.some(r => r.subcuenta_id === f.subcuenta_id) : false;
+  });
   if (f.tipo) lista = lista.filter(t => t.tipo === f.tipo);
   if (f.desde) lista = lista.filter(t => String(t.fecha) >= f.desde);
   if (f.hasta) lista = lista.filter(t => String(t.fecha) <= f.hasta);
@@ -1088,13 +1123,28 @@ function renderMovimientos() {
     const cta = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_id);
     const sub = (cta && t.subcuenta_id) ? (cta.subcuentas || []).find(s => s.id === t.subcuenta_id) : null;
     const ctaD = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_destino_id);
-    const subD = (ctaD && t.subcuenta_destino_id) ? (ctaD.subcuentas || []).find(s => s.id === t.subcuenta_destino_id) : null;
     const isTransfer = t.tipo === 'transferencia';
+    const reparto = isTransfer ? parseRepartoFromTx_(t) || [] : [];
+    const subD = (ctaD && t.subcuenta_destino_id && !reparto.length)
+      ? (ctaD.subcuentas || []).find(s => s.id === t.subcuenta_destino_id)
+      : null;
     const sign = isTransfer ? '' : (t.tipo === 'ingreso' ? '+' : '-');
     const color = isTransfer ? 'var(--on-surface-variant)' : (t.tipo === 'ingreso' ? 'var(--primary)' : 'var(--error)');
+    let destinoHtml;
+    if (isTransfer && reparto.length) {
+      destinoHtml = '<div class="body-sm" style="color: var(--on-surface-variant);">→ ' + escape(ctaD ? ctaD.nombre : '—') + '</div>'
+        + reparto.map(r => {
+          const sd = ctaD ? (ctaD.subcuentas || []).find(s => s.id === r.subcuenta_id) : null;
+          return `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sd ? sd.nombre : '—')} · ${fmtMoneda(r.importe, ctaD ? ctaD.moneda : 'EUR')}</div>`;
+        }).join('');
+    } else if (isTransfer) {
+      destinoHtml = `<div class="body-sm" style="color: var(--on-surface-variant);">→ ${escape(ctaD ? ctaD.nombre : '—')}${subD ? ' · ' + escape(subD.nombre) : ''}</div>`;
+    } else {
+      destinoHtml = sub ? `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sub.nombre)}</div>` : '';
+    }
     const cuentaHtml = isTransfer
-      ? `${escape(cta ? cta.nombre : '—')}${sub ? ' · ' + escape(sub.nombre) : ''}<div class="body-sm" style="color: var(--on-surface-variant);">→ ${escape(ctaD ? ctaD.nombre : '—')}${subD ? ' · ' + escape(subD.nombre) : ''}</div>`
-      : `${escape(cta ? cta.nombre : '—')}${sub ? `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sub.nombre)}</div>` : ''}`;
+      ? `${escape(cta ? cta.nombre : '—')}${sub ? ' · ' + escape(sub.nombre) : ''}${destinoHtml}`
+      : `${escape(cta ? cta.nombre : '—')}${destinoHtml}`;
     const pill = t.estado === 'conciliado' ? 'pill-primary' : t.estado === 'vencido' ? 'pill-error' : t.estado === 'pagado' ? 'pill-secondary' : 'pill-outline';
     return `<tr>
       <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat)}</div></td>
@@ -1299,16 +1349,20 @@ function openTx(id) {
   const f = Estado.editing || {};
   $('#txImporte').value = f.importe || '';
   $('#txFecha').value = f.fecha || new Date().toISOString().slice(0, 10);
+  Estado.txRepartoDest = [];
+  Estado._lastCtaDestinoId = '';
   setTipoTx(f.tipo || 'gasto');
   poblarSelect('#txCuenta', Estado.bootstrap.cuentas, f.cuenta_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCuentaDest', Estado.bootstrap.cuentas, f.cuenta_destino_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (f.tipo === 'ingreso' ? 'ingreso' : 'gasto')), f.categoria_id, c => c.nombre);
-  actualizarSubcuentasTx(f);
   $('#txDesc').value = f.descripcion || '';
   $('#txImporteDest').value = f.importe_destino || '';
   $('#txRatio').value = f.ratio_conversion || '';
   $('#txEstado').value = f.estado || 'pendiente';
   $('#txNotas').value = f.notas || '';
+  // Pasar `f` a actualizarSubcuentasTx para que pinte el reparto desde
+  // reparto_destino (o el legacy subcuenta_destino_id) en el primer render.
+  actualizarSubcuentasTx(f);
   Estado.recPlantillaId = '';
   if (f.recurrente_id) {
     const rec = Estado.bootstrap.recurrentes.find(r => r.id === f.recurrente_id);
@@ -1321,6 +1375,7 @@ function openTx(id) {
   }
   $('#txRecurrenteSwitch').checked = !!Estado.recPlantillaId;
   $('#wrapRecurrente').style.display = $('#txRecurrenteSwitch').checked ? 'flex' : 'none';
+  actualizarTotalReparto();
   openSheet('sheetTx');
 }
 function setTipoTx(tipo) {
@@ -1330,7 +1385,9 @@ function setTipoTx(tipo) {
   $('#wrapConversion').style.display = tipo === 'transferencia' ? '' : 'none';
   $('#wrapCategoria').style.display = tipo === 'transferencia' ? 'none' : '';
   poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (tipo === 'ingreso' ? 'ingreso' : 'gasto')), '', c => c.nombre);
+  if (tipo !== 'transferencia') Estado.txRepartoDest = [];
   actualizarSubcuentasTx();
+  actualizarTotalReparto();
 }
 $$('[data-tx-tipo]').forEach(b => b.addEventListener('click', () => setTipoTx(b.dataset.txTipo)));
 
@@ -1354,23 +1411,126 @@ function actualizarSubcuentasTx(preferred) {
     selO.value = '';
   }
 
-  // Subcuenta de destino: solo en transferencias, si la cuenta destino tiene subcuentas.
+  // Reparto destino: solo transferencias; si la cuenta destino tiene subcuentas,
+  // se muestra la lista dinámica para repartir el importe entre varias.
   const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#txCuentaDest').value);
   const subsD = (ctaD && ctaD.subcuentas) || [];
-  const visDest = isTransfer && subsD.length > 0;
-  $('#wrapSubcuentaDest').style.display = visDest ? '' : 'none';
-  const selD = $('#txSubcuentaDest');
-  if (visDest) {
-    const currentD = preferred ? preferred.subcuenta_destino_id : selD.value;
-    selD.innerHTML = '<option value="">— Ninguna —</option>' + subsD.map(s =>
-      `<option value="${s.id}" ${s.id === currentD ? 'selected' : ''}>${escape(s.nombre)}</option>`
-    ).join('');
-  } else {
-    selD.value = '';
+  const visDest = isTransfer && !!$('#txCuentaDest').value;
+  $('#wrapRepartoDest').style.display = visDest ? '' : 'none';
+  if (!visDest) {
+    Estado.txRepartoDest = [];
+    renderRepartoRows(subsD, []);
+    actualizarTotalReparto();
+    return;
+  }
+  // Si la cuenta destino cambió y los ids seleccionados ya no existen, se limpia.
+  const validIds = new Set(subsD.map(s => s.id));
+  const preferido = parseRepartoFromTx_(preferred);
+  if (preferred) {
+    Estado.txRepartoDest = preferido.filter(r => validIds.has(r.subcuenta_id));
+  } else if (Estado.txRepartoDest.length && Estado._lastCtaDestinoId !== $('#txCuentaDest').value) {
+    Estado.txRepartoDest = Estado.txRepartoDest.filter(r => validIds.has(r.subcuenta_id));
+  }
+  Estado._lastCtaDestinoId = $('#txCuentaDest').value;
+  renderRepartoRows(subsD, Estado.txRepartoDest);
+  actualizarTotalReparto();
+}
+
+function parseRepartoFromTx_(tx) {
+  if (!tx) return null;
+  if (tx.reparto_destino && Array.isArray(tx.reparto_destino) && tx.reparto_destino.length) {
+    return tx.reparto_destino.map(r => ({ subcuenta_id: r.subcuenta_id, importe: Number(r.importe) }));
+  }
+  if (typeof tx.reparto_destino === 'string' && tx.reparto_destino) {
+    try {
+      const parsed = JSON.parse(tx.reparto_destino);
+      if (Array.isArray(parsed) && parsed.length) {
+        return parsed.map(r => ({ subcuenta_id: r.subcuenta_id, importe: Number(r.importe) }));
+      }
+    } catch (e) { /* ignore */ }
+  }
+  // Legacy: una sola subcuenta destino con importe = importe_destino || importe.
+  if (tx.subcuenta_destino_id) {
+    return [{ subcuenta_id: tx.subcuenta_destino_id, importe: Number(tx.importe_destino || tx.importe || 0) }];
+  }
+  return null;
+}
+
+function renderRepartoRows(subsD, rows) {
+  const wrap = $('#repartoDestList');
+  wrap.innerHTML = '';
+  const btn = $('#btnAddRepartoDest');
+  if (!subsD.length) {
+    wrap.innerHTML = '<div class="body-sm" style="color: var(--on-surface-variant);">Esta cuenta no tiene subcuentas. La transferencia se hará a nivel de cuenta.</div>';
+    if (btn) btn.style.display = 'none';
+    return;
+  }
+  if (btn) btn.style.display = '';
+  rows.forEach((r, i) => wrap.appendChild(buildRepartoRow(subsD, r, i)));
+}
+
+function buildRepartoRow(subsD, row, idx) {
+  const div = document.createElement('div');
+  div.className = 'reparto-row';
+  const opts = '<option value="">— Subcuenta —</option>' + subsD.map(s =>
+    `<option value="${s.id}" ${s.id === row.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
+  ).join('');
+  div.innerHTML = `
+    <select class="select reparto-sub">${opts}</select>
+    <input class="input reparto-imp" type="number" step="0.01" min="0" placeholder="0,00" value="${row.importe || ''}">
+    <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
+  `;
+  div.querySelector('.reparto-sub').addEventListener('change', e => {
+    Estado.txRepartoDest[idx].subcuenta_id = e.target.value;
+    actualizarTotalReparto();
+  });
+  div.querySelector('.reparto-imp').addEventListener('input', e => {
+    Estado.txRepartoDest[idx].importe = Number(e.target.value || 0);
+    actualizarTotalReparto();
+  });
+  div.querySelector('.reparto-remove').addEventListener('click', () => {
+    Estado.txRepartoDest.splice(idx, 1);
+    renderRepartoRows(subsD, Estado.txRepartoDest);
+    actualizarTotalReparto();
+  });
+  return div;
+}
+
+function addRepartoRow() {
+  const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#txCuentaDest').value);
+  const subsD = (ctaD && ctaD.subcuentas) || [];
+  if (!subsD.length) { toast('La cuenta destino no tiene subcuentas'); return; }
+  Estado.txRepartoDest.push({ subcuenta_id: '', importe: 0 });
+  renderRepartoRows(subsD, Estado.txRepartoDest);
+  actualizarTotalReparto();
+}
+
+function destinoTotalTx_() {
+  const impDest = Number($('#txImporteDest').value || 0);
+  const ratio = Number($('#txRatio').value || 0);
+  if (ratio > 0 && impDest > 0) return impDest;
+  return Number($('#txImporte').value || 0);
+}
+
+function actualizarTotalReparto() {
+  const total = destinoTotalTx_();
+  const suma = Estado.txRepartoDest.reduce((s, r) => s + Number(r.importe || 0), 0);
+  const el = $('#repartoDestTotal');
+  if (!el) return;
+  const fmt = v => fmtMoneda(v);
+  el.textContent = 'Total: ' + fmt(suma) + ' / ' + fmt(total);
+  const tieneReparto = Estado.txRepartoDest.length > 0;
+  el.classList.remove('reparto-total-ok', 'reparto-total-bad');
+  if (tieneReparto) {
+    el.classList.add(Math.abs(suma - total) <= 0.01 ? 'reparto-total-ok' : 'reparto-total-bad');
   }
 }
 $('#txCuenta').addEventListener('change', actualizarSubcuentasTx);
 $('#txCuentaDest').addEventListener('change', actualizarSubcuentasTx);
+$('#btnAddRepartoDest').addEventListener('click', addRepartoRow);
+$('#txImporte').addEventListener('input', actualizarTotalReparto);
+$('#txImporteDest').addEventListener('input', actualizarTotalReparto);
+$('#txRatio').addEventListener('input', actualizarTotalReparto);
 $('#txRecurrenteSwitch').addEventListener('change', e => {
   $('#wrapRecurrente').style.display = e.target.checked ? 'flex' : 'none';
 });
@@ -1379,6 +1539,11 @@ $('#formTx').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
   const recurrenteOn = $('#txRecurrenteSwitch').checked;
+  const reparto = Estado.txTipo === 'transferencia'
+    ? Estado.txRepartoDest
+        .map(r => ({ subcuenta_id: r.subcuenta_id, importe: Number(r.importe || 0) }))
+        .filter(r => r.subcuenta_id && r.importe > 0)
+    : [];
   const tx = {
     id: f.get('id') || '',
     tipo: Estado.txTipo,
@@ -1387,9 +1552,9 @@ $('#formTx').addEventListener('submit', async (e) => {
     cuenta_id: f.get('cuenta_id'),
     subcuenta_id: f.get('subcuenta_id') || '',
     cuenta_destino_id: f.get('cuenta_destino_id') || '',
-    subcuenta_destino_id: f.get('subcuenta_destino_id') || '',
     importe_destino: f.get('importe_destino') || '',
     ratio_conversion: f.get('ratio_conversion') || '',
+    reparto_destino: reparto,
     categoria_id: f.get('categoria_id') || '',
     descripcion: f.get('descripcion') || '',
     estado: f.get('estado'),
