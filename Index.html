@@ -1534,8 +1534,8 @@ function actualizarTotalReparto() {
     el.classList.add(Math.abs(suma - total) <= 0.01 ? 'reparto-total-ok' : 'reparto-total-bad');
   }
 }
-$('#txCuenta').addEventListener('change', actualizarSubcuentasTx);
-$('#txCuentaDest').addEventListener('change', actualizarSubcuentasTx);
+$('#txCuenta').addEventListener('change', () => actualizarSubcuentasTx());
+$('#txCuentaDest').addEventListener('change', () => actualizarSubcuentasTx());
 $('#btnAddRepartoDest').addEventListener('click', addRepartoRow);
 $('#txImporte').addEventListener('input', actualizarTotalReparto);
 $('#txImporteDest').addEventListener('input', actualizarTotalReparto);
