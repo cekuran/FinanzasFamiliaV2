@@ -1357,7 +1357,8 @@ function openTx(id) {
   setTipoTx(f.tipo || 'gasto');
   poblarSelect('#txCuenta', Estado.bootstrap.cuentas, f.cuenta_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCuentaDest', Estado.bootstrap.cuentas, f.cuenta_destino_id, c => c.nombre + ' (' + c.moneda + ')');
-  poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (f.tipo === 'ingreso' ? 'ingreso' : 'gasto')), f.categoria_id, c => c.nombre);
+  const cats = f.tipo === 'transferencia' ? Estado.bootstrap.categorias : Estado.bootstrap.categorias.filter(c => c.tipo === f.tipo);
+poblarSelect('#txCategoria', cats, f.categoria_id, c => c.nombre);
   $('#txDesc').value = f.descripcion || '';
   $('#txImporteDest').value = f.importe_destino || '';
   $('#txRatio').value = f.ratio_conversion || '';
@@ -1388,8 +1389,8 @@ function setTipoTx(tipo) {
   $$('[data-tx-tipo]').forEach(b => b.classList.toggle('is-on', b.dataset.txTipo === tipo));
   $('#wrapCuentaDest').style.display = tipo === 'transferencia' ? '' : 'none';
   $('#wrapConversion').style.display = tipo === 'transferencia' ? '' : 'none';
-  $('#wrapCategoria').style.display = tipo === 'transferencia' ? 'none' : '';
-  poblarSelect('#txCategoria', Estado.bootstrap.categorias.filter(c => c.tipo === (tipo === 'ingreso' ? 'ingreso' : 'gasto')), '', c => c.nombre);
+  const cats = tipo === 'transferencia' ? Estado.bootstrap.categorias : Estado.bootstrap.categorias.filter(c => c.tipo === tipo);
+  poblarSelect('#txCategoria', cats, '', c => c.nombre);
   if (tipo !== 'transferencia') Estado.txRepartoDest = [];
   if (tipo === 'transferencia' && !$('#txRatio').value) $('#txRatio').value = '1';
   actualizarSubcuentasTx();
