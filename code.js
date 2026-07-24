@@ -813,7 +813,9 @@ function obtenerResumen(anio, mes) {
   const evol = [];
   for (let i = 11; i >= 0; i--) {
     const d = new Date(a, m - 1 - i, 1);
-    const k = Utilities.formatDate(d, ss_().getSpreadsheetTimeZone(), 'yyyy-MM');
+    // ponytail: usa componentes locales (script tz) — formatDate con ss_tz podía devolver
+    // el mes anterior si la hoja estaba en UTC; los slice(0,7) de txs almacenados no matcheaban
+    const k = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     const en = txs.filter(t => String(t.fecha).slice(0, 7) === k);
     evol.push({
       mes: k,
