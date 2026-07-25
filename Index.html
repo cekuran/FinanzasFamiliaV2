@@ -1155,6 +1155,8 @@ function renderDashboard() {
 
   // Movimientos recientes
   $('#dashTx').innerHTML = txs.length ? txs.map(txRow).join('') : emptyHtml('Sin movimientos', 'Registra un gasto o ingreso.');
+  $$('#dashTx [data-tx-edit]').forEach(b => b.addEventListener('click', () => openTx(b.dataset.txEdit)));
+  $$('#dashTx [data-tx-del]').forEach(b => b.addEventListener('click', () => borrarTx(b.dataset.txDel)));
 
   // Próximos pagos
   const prox = (resumen.proximos || []).slice(0, 4);
@@ -1214,6 +1216,10 @@ function txRow(t) {
       <div class="tx-sub">${escape(t.fecha || '')} · ${detalle}</div>
     </div>
     <div class="tx-amount ${cls}">${sign}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</div>
+    <div style="display: flex; gap: 2px;">
+      <button class="icon-btn" data-tx-edit="${t.id}" title="Editar">${ICONOS.edit}</button>
+      <button class="icon-btn" data-tx-del="${t.id}" title="Eliminar">${ICONOS.delete}</button>
+    </div>
   </div>`;
 }
 
