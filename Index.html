@@ -1363,7 +1363,8 @@ function renderRecurrentes() {
       </div>
       <div class="data-tabular" style="font-weight: 700; color: ${sign > 0 ? 'var(--primary)' : 'var(--error)'};">${sign > 0 ? '+' : '-'}${fmtMoneda(p.importe)}</div>
       <label class="switch"><input type="checkbox" ${r.activa ? 'checked' : ''} data-rec-toggle="${r.id}"><span class="track"><span class="knob"></span></span></label>
-      <button class="icon-btn" data-rec-del="${r.id}">${ICONOS.delete}</button>
+      <button class="icon-btn" data-rec-edit="${r.id}" title="Editar">${ICONOS.edit}</button>
+      <button class="icon-btn" data-rec-del="${r.id}" title="Eliminar">${ICONOS.delete}</button>
     </div>`;
   }).join('');
   $$('[data-rec-toggle]').forEach(b => b.addEventListener('change', async (e) => {
@@ -1372,6 +1373,7 @@ function renderRecurrentes() {
     r.activa = e.target.checked;
     await call('guardarRecurrente', { id, plantilla: r.plantilla, activa: r.activa, ultima_generacion: r.ultima_generacion });
   }));
+  $$('[data-rec-edit]').forEach(b => b.addEventListener('click', () => openRec(b.dataset.recEdit)));
   $$('[data-rec-del]').forEach(b => b.addEventListener('click', async () => {
     if (!confirm('¿Eliminar plantilla?')) return;
     await call('eliminarRecurrente', b.dataset.recDel);
@@ -1918,38 +1920,56 @@ $('#formCat').addEventListener('submit', async (e) => {
 });
 
 // === Rec sheet ===
-function openRec() {
-  $('#recDesc').value = '';
-  $('#recImporte').value = '';
-  $('#recDia').value = '1';
-  $('#recTipo').value = 'gasto';
-  $('#recPer').value = 'mensual';
-  poblarSelect('#recCuenta', Estado.bootstrap.cuentas, '', c => c.nombre + ' (' + c.moneda + ')');
-  poblarSelect('#recCat', Estado.bootstrap.categorias, '', c => c.nombre);
+// ponytail: draft local para conservar el id, la plantilla cruda y
+// ultima_generacion entre openRec y el submit. Permite editar sin perder
+// campos que el sheet no expone (subcuenta_id, cuenta_destino_id, reparto).
+const recDraft = { id: '', plantilla: '', ultima_generacion: '' };
+function openRec(id) {
+  const r = id ? Estado.bootstrap.recurrentes.find(x => x.id === id) : null;
+  const p = r ? (typeof r.plantilla === 'string' ? JSON.parse(r.plantilla) : (r.plantilla || {})) : {};
+  $('#sheetRecTitle').textContent = r ? 'Editar recurrente' : 'Nuevo recurrente';
+  $('#recDesc').value = p.descripcion || '';
+  $('#recImporte').value = p.importe || '';
+  $('#recDia').value = p.dia_mes || 1;
+  $('#recTipo').value = p.tipo || 'gasto';
+  $('#recPer').value = p.periodicidad || 'mensual';
+  poblarSelect('#recCuenta', Estado.bootstrap.cuentas, p.cuenta_id || '', c => c.nombre + ' (' + c.moneda + ')');
+  poblarSelect('#recCat', Estado.bootstrap.categorias, p.categoria_id || '', c => c.nombre);
+  recDraft.id = r ? r.id : '';
+  recDraft.plantilla = r ? r.plantilla : '';
+  recDraft.ultima_generacion = r ? (r.ultima_generacion || '') : '';
   openSheet('sheetRec');
 }
 $('#recCancel').addEventListener('click', closeAllSheets);
 $('#formRec').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
+  let base = {};
+  if (recDraft.plantilla) {
+    try { base = JSON.parse(recDraft.plantilla); } catch (_) { /* ponytail: plantilla corrupta → empezar de cero */ }
+  }
+  const plantilla = Object.assign({}, base, {
+    descripcion: f.get('descripcion'),
+    importe: Number(f.get('importe')),
+    tipo: f.get('tipo'),
+    periodicidad: f.get('periodicidad'),
+    dia_mes: Number(f.get('dia_mes')),
+    cuenta_id: f.get('cuenta_id'),
+    categoria_id: f.get('categoria_id') || ''
+  });
+  if (!recDraft.id && !plantilla.inicio) plantilla.inicio = new Date().toISOString().slice(0, 10);
   try {
-    await call('guardarRecurrente', {
-      plantilla: {
-        descripcion: f.get('descripcion'),
-        importe: Number(f.get('importe')),
-        tipo: f.get('tipo'),
-        periodicidad: f.get('periodicidad'),
-        dia_mes: Number(f.get('dia_mes')),
-        cuenta_id: f.get('cuenta_id'),
-        categoria_id: f.get('categoria_id') || '',
-        inicio: new Date().toISOString().slice(0, 10)
-      },
-      activa: true,
-      ultima_generacion: ''
-    });
+    const args = { plantilla, activa: true };
+    if (recDraft.id) {
+      args.id = recDraft.id;
+      args.ultima_generacion = recDraft.ultima_generacion;
+    } else {
+      args.ultima_generacion = '';
+    }
+    await call('guardarRecurrente', args);
     closeAllSheets();
     await recargar();
-    toast('Plantilla creada');
+    toast(recDraft.id ? 'Plantilla actualizada' : 'Plantilla creada');
   } catch (err) { toast('Error: ' + err.message); }
 });
 
