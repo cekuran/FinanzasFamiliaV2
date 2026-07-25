@@ -965,13 +965,17 @@ function renderDashboard() {
   $('#dashAhorroSub').textContent = (ingresos > 0 ? 'Has ahorrado el ' + pct + '% de tus ingresos este mes.' : 'Aún no hay ingresos registrados este mes.');
 
   // Bar chart
+  // Bar chart — Evolución Mensual: neto mensual (ingresos − gastos)
+  // Verde (activo) cuando el mes es positivo, rojo (pasivo) cuando es negativo.
   const evol = resumen.evol || [];
-  const maxG = Math.max(1, ...evol.map(e => Number(e.gastos || 0)));
+  const maxAbs = Math.max(1, ...evol.map(e => Math.abs(Number(e.ingresos || 0) - Number(e.gastos || 0))));
   $('#dashBars').innerHTML = evol.map(m => {
-    const h = Math.round((Number(m.gastos || 0) / maxG) * 100);
+    const neto = Number(m.ingresos || 0) - Number(m.gastos || 0);
+    const h = Math.round((Math.abs(neto) / maxAbs) * 100);
+    const neg = neto < 0;
     return `<div class="bar">
       <div class="bar-stack" style="height: ${Math.max(8, h)}%;">
-        <div class="bar-fill" style="height: 100%;"></div>
+        <div class="bar-fill${neg ? ' pasivo' : ''}" style="height: 100%;"></div>
       </div>
       <div class="bar-label">${m.mes.slice(5, 7)}</div>
     </div>`;
