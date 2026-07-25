@@ -849,6 +849,8 @@ const fmtMoneda = (v, m) => new Intl.NumberFormat('es-ES', { style: 'currency', 
 const fmtNum = (v, m) => fmtMoneda(v, m);
 const fmtDec = (v, dec = 2) => Number(v || 0).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const fmtRatio = (v) => Number(v || 0).toLocaleString('es-ES', { maximumFractionDigits: 6 });
+const MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const fmtMesCorto = (s) => { const [y, m] = String(s).split('-'); return MES_ABBR[Number(m) - 1] + " '" + y.slice(2); };
 const escape = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const ICONOS = {
@@ -977,7 +979,7 @@ function renderDashboard() {
       <div class="bar-stack" style="height: ${Math.max(8, h)}%;">
         <div class="bar-fill${neg ? ' pasivo' : ''}" style="height: 100%;"></div>
       </div>
-      <div class="bar-label">${m.mes.slice(5, 7)}</div>
+      <div class="bar-label">${fmtMesCorto(m.mes)}</div>
     </div>`;
   }).join('');
 
@@ -1072,7 +1074,7 @@ function renderCuentas() {
         ${(c.evolucion || []).map(p => {
           const max = Math.max(1, ...((c.evolucion || []).map(x => Math.abs(Number(x.saldo || 0)))));
           const h = Math.round((Math.abs(Number(p.saldo || 0)) / max) * 100);
-          return `<div class="bar"><div class="bar-stack" style="height: ${Math.max(6, h)}%;"><div class="bar-fill" style="height: 100%; background: ${c.tipo === 'pasivo' ? 'var(--error)' : 'var(--primary)'};"></div></div><div class="bar-label">${p.mes.slice(5, 7)}</div></div>`;
+          return `<div class="bar"><div class="bar-stack" style="height: ${Math.max(6, h)}%;"><div class="bar-fill" style="height: 100%; background: ${c.tipo === 'pasivo' ? 'var(--error)' : 'var(--primary)'};"></div></div><div class="bar-label">${fmtMesCorto(p.mes)}</div></div>`;
         }).join('')}
       </div>
       ${(c.subcuentas && c.subcuentas.length) ? `<div class="subcuentas" data-subcuentas-parent="${c.id}">${c.subcuentas.map(s => `
