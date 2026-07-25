@@ -362,6 +362,12 @@
   .reparto-row .icon-btn { flex: 0; }
   .reparto-total-ok { color: var(--primary) !important; }
   .reparto-total-bad { color: var(--error) !important; }
+
+  /* Spinner de carga mientras se esperan respuestas del servidor */
+  .spinner-overlay { position: fixed; inset: 0; z-index: 300; background: color-mix(in srgb, var(--surface) 40%, transparent); backdrop-filter: blur(2px); display: grid; place-items: center; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+  .spinner-overlay.is-on { opacity: 1; pointer-events: auto; }
+  .spinner { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--surface-container-high); border-top-color: var(--primary); animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -844,6 +850,8 @@
 
 <div class="toast" id="toast"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span id="toastMsg">Listo</span></div>
 
+<div class="spinner-overlay" id="spinnerOverlay" aria-hidden="true"><div class="spinner"></div></div>
+
 <script>
 const EUR = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const fmtMoneda = (v, m) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: m || 'EUR', maximumFractionDigits: 2 }).format(Number(v || 0));
@@ -1015,11 +1023,33 @@ function toast(msg) {
 }
 
 async function call(fn, ...args) {
+  // ponytail: contador para soportar llamadas concurrentes; el spinner se apaga
+  // solo cuando el último pending termina. Mínimo de 250ms para evitar parpadeo
+  // en respuestas rápidas (que son la mayoría desde GAS tras caché del cliente).
+  spinnerInc();
   return new Promise((resolve, reject) => {
     google.script.run
-      .withSuccessHandler(resolve)
-      .withFailureHandler(reject)[fn](...args);
+      .withSuccessHandler(v => { spinnerDec(); resolve(v); })
+      .withFailureHandler(e => { spinnerDec(); reject(e); })[fn](...args);
   });
+}
+let _spinnerPending = 0;
+let _spinnerMinTimer = 0;
+function spinnerInc() {
+  _spinnerPending++;
+  if (_spinnerPending === 1) {
+    clearTimeout(_spinnerMinTimer);
+    $('#spinnerOverlay').classList.add('is-on');
+  }
+}
+function spinnerDec() {
+  _spinnerPending = Math.max(0, _spinnerPending - 1);
+  if (_spinnerPending === 0) {
+    clearTimeout(_spinnerMinTimer);
+    _spinnerMinTimer = setTimeout(() => {
+      if (_spinnerPending === 0) $('#spinnerOverlay').classList.remove('is-on');
+    }, 250);
+  }
 }
 
 // Garantiza que el bootstrap siempre tenga las colecciones esperadas como arrays,
