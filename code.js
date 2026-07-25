@@ -840,7 +840,7 @@ function obtenerCategoriasResumen(anio, mes) {
   const owner = email_();
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
-  const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && t.tipo === 'gasto');
+  const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && ['gasto', 'transferencia'].includes(t.tipo));
   const ps = leerHoja('Presupuestos').filter(p => p.owner_email === owner);
   const cats = obtenerCategorias();
   return cats.map(c => {
@@ -918,12 +918,15 @@ function __selfTest() {
   const destSubName = 'self-dest-sub-' + Utilities.getUuid().slice(0, 8);
   const withDestSub = guardarCuenta({ parent_id: destParent.id, nombre: destSubName, saldo_inicial: 0 });
   const destSubId = withDestSub.find(c => c.id === destParent.id).subcuentas.find(s => s.nombre === destSubName).id;
+  const realAntesTransferencia = obtenerCategoriasResumen().find(c => c.id === cat[0].id).real;
   const txTransfer = guardarTransaccion({
     tipo: 'transferencia', importe: 20,
     cuenta_id: parent.id, subcuenta_id: subId,
     cuenta_destino_id: destParent.id, subcuenta_destino_id: destSubId,
-    descripcion: 'self-sub-transfer', fecha: isoHoy_()
+    categoria_id: cat[0].id, descripcion: 'self-sub-transfer', fecha: isoHoy_()
   });
+  const realDespuesTransferencia = obtenerCategoriasResumen().find(c => c.id === cat[0].id).real;
+  if (realDespuesTransferencia !== realAntesTransferencia + 20) throw new Error('Transferencia no sumó al presupuesto: ' + realDespuesTransferencia);
   const targetAfter = obtenerCuentas().find(c => c.id === destParent.id).subcuentas.find(s => s.id === destSubId);
   if (targetAfter.saldo !== 20) throw new Error('Transferencia no acreditó subcuenta destino: ' + targetAfter.saldo);
   const after = reordenarSubcuentas(parent.id, [anotherId, subId]);
