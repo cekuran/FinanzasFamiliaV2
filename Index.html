@@ -761,6 +761,20 @@
       </div>
     </div>
     <div class="field"><label>Saldo inicial</label><input class="input" type="number" step="0.01" name="saldo_inicial" id="ctaSaldo" value="0"></div>
+    <div class="field" id="wrapCtaIcono"><label>Icono</label>
+      <select class="select" name="icono" id="ctaIcono">
+        <option value="account_balance_wallet">Cartera</option>
+        <option value="account_balance">Banco</option>
+        <option value="savings">Ahorro</option>
+        <option value="credit_card">Tarjeta</option>
+        <option value="payments">Pagos</option>
+        <option value="trending_up">Inversión</option>
+        <option value="cloud">Digital</option>
+        <option value="home">Vivienda</option>
+        <option value="directions_car">Vehículo</option>
+        <option value="receipt_long">Recibos</option>
+      </select>
+    </div>
     <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
       <button type="button" class="btn btn-secondary" id="ctaCancel" style="flex: 1;">Cancelar</button>
       <button type="submit" class="btn btn-primary" style="flex: 2;">Guardar</button>
@@ -880,7 +894,6 @@ const ICONOS = {
   more_vert: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg>'
 };
 
-const ICON_MAP = { account_balance: ICONOS.account_balance, savings: ICONOS.savings, credit_card: ICONOS.credit_card };
 const CAT_ICON_BY_NAME = { 'Vivienda': 'home', 'Alimentación': 'shopping_cart', 'Transporte': 'directions_car', 'Ocio': 'movie', 'Salud': 'fitness_center', 'Suscripciones': 'subscriptions', 'Nómina': 'payments', 'Ingresos extra': 'work' };
 const iconoCat = cat => (cat && cat.icono) || CAT_ICON_BY_NAME[cat && cat.nombre] || 'category';
 const icoCat = cat => ICONOS[iconoCat(cat)] || ICONOS.category;
@@ -987,7 +1000,7 @@ function renderDashboard() {
   const preview = cuentas.slice(0, 3);
   $('#dashCuentas').innerHTML = preview.map(c => `
     <div class="card col-4 acct">
-      <div class="acct-ico" style="${c.tipo === 'pasivo' ? 'background: var(--error-container); color: var(--on-error-container);' : ''}">${ICON_MAP[c.icono] || ICONOS.account_balance_wallet}</div>
+      <div class="acct-ico" style="${c.tipo === 'pasivo' ? 'background: var(--error-container); color: var(--on-error-container);' : ''}">${ICONOS[c.icono] || ICONOS.account_balance_wallet}</div>
       <div class="acct-body">
         <div class="acct-name">${escape(c.nombre)}</div>
         <div class="acct-balance" style="color: ${c.tipo === 'pasivo' ? 'var(--error)' : 'var(--on-surface)'};">${fmtMoneda(c.saldo, c.moneda)}</div>
@@ -1064,7 +1077,7 @@ function renderCuentas() {
   $('#cuentasList').innerHTML = cuentas.length ? cuentas.map(c => `
     <div class="card col-4 acct" style="flex-direction: column; align-items: stretch; gap: var(--s-3);">
       <div style="display: flex; align-items: center; gap: var(--s-3);">
-        <div class="acct-ico" style="${c.tipo === 'pasivo' ? 'background: var(--error-container); color: var(--on-error-container);' : ''}">${ICON_MAP[c.icono] || ICONOS.account_balance_wallet}</div>
+        <div class="acct-ico" style="${c.tipo === 'pasivo' ? 'background: var(--error-container); color: var(--on-error-container);' : ''}">${ICONOS[c.icono] || ICONOS.account_balance_wallet}</div>
         <div class="acct-body">
           <div class="acct-name">${escape(c.nombre)} · ${escape(c.moneda)}</div>
           <div class="acct-balance" style="color: ${c.tipo === 'pasivo' ? 'var(--error)' : 'var(--on-surface)'};">${fmtMoneda(c.saldo, c.moneda)}</div>
@@ -1641,10 +1654,12 @@ function openCuenta(id, parentId) {
   $('#wrapCtaParent').style.display = parent ? '' : 'none';
   $('#ctaParentLabel').textContent = parent ? (parent.nombre + ' · ' + parent.moneda) : '';
   $('#ctaTopFields').style.display = parent ? 'none' : '';
+  $('#wrapCtaIcono').style.display = parent ? 'none' : '';
   $('#ctaNombre').value = c ? c.nombre : '';
   $('#ctaTipo').value = (c && c.tipo) ? c.tipo : 'activo';
   $('#ctaMoneda').value = (c && c.moneda) ? c.moneda : 'EUR';
   $('#ctaSaldo').value = c ? c.saldo_inicial : 0;
+  $('#ctaIcono').value = (c && c.icono) || 'account_balance_wallet';
   openSheet('sheetCuenta');
 }
 $('#ctaCancel').addEventListener('click', closeAllSheets);
@@ -1658,6 +1673,7 @@ $('#formCuenta').addEventListener('submit', async (e) => {
       nombre: f.get('nombre'),
       tipo: f.get('tipo'),
       moneda: f.get('moneda'),
+      icono: f.get('icono') || 'account_balance_wallet',
       saldo_inicial: Number(f.get('saldo_inicial') || 0)
     });
     closeAllSheets();
