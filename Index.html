@@ -299,7 +299,7 @@
   .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; background: var(--surface-container-lowest); border-top: 1px solid var(--surface-container); display: flex; justify-content: space-around; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0)); }
   @media (min-width: 900px) { .bottom-nav { display: none; } }
   .bn-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 12px; border-radius: var(--r-md); color: var(--on-surface-variant); font-size: 11px; font-weight: 600; }
-  .bn-item.is-on { color: var(--primary); background: var(--primary-container); color: var(--on-primary-container); }
+  .bn-item.is-active { color: var(--primary); background: var(--primary-container); color: var(--on-primary-container); }
   .bn-item .ico { width: 22px; height: 22px; }
 
   .fab { position: fixed; right: 24px; bottom: calc(88px + env(safe-area-inset-bottom, 0)); z-index: 40; width: 56px; height: 56px; border-radius: var(--r-full); background: var(--primary); color: var(--on-primary); display: grid; place-items: center; box-shadow: var(--shadow-pop); transition: transform 0.15s; }
@@ -660,7 +660,7 @@
 
   <!-- Bottom nav (mobile) -->
   <nav class="bottom-nav">
-    <div class="bn-item is-on" data-route="dashboard"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z"/></svg>Inicio</div>
+    <div class="bn-item is-active" data-route="dashboard"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z"/></svg>Inicio</div>
     <div class="bn-item" data-route="cuentas"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v4H4zm0 6h16v10H4zm3 3h6v2H7z"/></svg>Cuentas</div>
     <div class="bn-item" data-route="movimientos"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v3H4zm0 5h16v2H4zm0 4h10v2H4z"/></svg>Movimientos</div>
     <div class="bn-item" data-route="presupuesto"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M5 21V8l7-5 7 5v13h-4v-7H9v7z"/></svg>Presupuesto</div>
