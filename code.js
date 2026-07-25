@@ -186,6 +186,14 @@ function doGet() {
 }
 
 function bootstrap() {
+  const base = bootstrapBase();
+  base.transacciones = obtenerTransacciones({});
+  return base;
+}
+
+// Bootstrap ligero para carga progresiva en el cliente.
+// Devuelve todo menos transacciones para que la UI pinte antes.
+function bootstrapBase() {
   const owner = email_();
   migrarEsquema();
   sembrar(owner);
@@ -196,7 +204,6 @@ function bootstrap() {
     version: PropertiesService.getScriptProperties().getProperty('VERSION') || '',
     cuentas: obtenerCuentas(),
     categorias: obtenerCategorias(),
-    transacciones: obtenerTransacciones({}),
     recurrentes: obtenerRecurrentes(),
     presupuestos: obtenerPresupuestos(),
     resumen: obtenerResumen()

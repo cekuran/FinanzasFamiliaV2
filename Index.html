@@ -1068,6 +1068,26 @@ function normalizarBootstrap(b) {
   };
 }
 
+let _txSyncToken = 0;
+
+async function sincronizarTransacciones(opciones) {
+  const opts = opciones || {};
+  const token = ++_txSyncToken;
+  try {
+    const txs = await call('obtenerTransacciones', {});
+    if (token !== _txSyncToken) return false;
+    Estado.bootstrap.transacciones = Array.isArray(txs) ? txs : [];
+    if (opts.render !== false) {
+      renderDashboard();
+      renderMovimientos();
+    }
+    return true;
+  } catch (e) {
+    if (opts.toastOnError) toast('Error al cargar movimientos: ' + e.message);
+    return false;
+  }
+}
+
 // === Rutas ===
 const ROUTES = ['dashboard', 'cuentas', 'movimientos', 'presupuesto', 'recurrentes', 'conciliar', 'categorias'];
 function go(route) {
@@ -2000,9 +2020,16 @@ function refrescarCuentas() {
 
 // === Boot ===
 async function recargar() {
-  const fresh = await call('bootstrap');
-  if (!fresh) { toast('No se pudo recargar'); return; }
-  Estado.bootstrap = normalizarBootstrap(fresh);
+  const token = ++_txSyncToken;
+  const [base, txs] = await Promise.all([
+    call('bootstrapBase'),
+    call('obtenerTransacciones', {})
+  ]);
+  if (token !== _txSyncToken) return;
+  if (!base) { toast('No se pudo recargar'); return; }
+  Estado.bootstrap = normalizarBootstrap(Object.assign({}, base, {
+    transacciones: Array.isArray(txs) ? txs : []
+  }));
   poblarFiltros();
   if (location.hash.startsWith('#/')) go(location.hash.slice(2));
   else renderDashboard();
@@ -2027,7 +2054,7 @@ window.addEventListener('hashchange', () => {
 
 (async function init() {
   try {
-    Estado.bootstrap = normalizarBootstrap(await call('bootstrap'));
+    Estado.bootstrap = normalizarBootstrap(await call('bootstrapBase'));
     const email = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.email) || '?';
     const v = Estado.bootstrap.version;
     $('#sidebarFoot').textContent = (v ? 'v' + v + ' · ' : '') + 'Finanzas Familia';
@@ -2036,6 +2063,7 @@ window.addEventListener('hashchange', () => {
     $('#userEmail').textContent = email;
     poblarFiltros();
     go('dashboard');
+    sincronizarTransacciones({ render: true, toastOnError: true });
   } catch (e) {
     document.body.innerHTML = '<div class="empty"><h2>Error de carga</h2><p>' + escape(e.message) + '</p></div>';
   }
