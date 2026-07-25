@@ -208,6 +208,14 @@
   .btn-icon { width: 40px; height: 40px; padding: 0; border-radius: var(--r-full); }
   .btn-sm { padding: 6px 12px; font-size: 14px; }
 
+  /* === Icon picker === */
+  .icon-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-2); }
+  .icon-grid button { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border-radius: var(--r-md); background: var(--surface-container); color: var(--on-surface-variant); border: 2px solid transparent; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s; }
+  .icon-grid button:hover { background: var(--surface-container-high); color: var(--on-surface); }
+  .icon-grid button:active { transform: scale(0.94); }
+  .icon-grid button.is-active { background: var(--primary-container); color: var(--on-primary-container); border-color: var(--primary); }
+  @media (max-width: 480px) { .icon-grid { grid-template-columns: repeat(5, 1fr); } }
+
   /* === Inputs === */
   .field { display: flex; flex-direction: column; gap: 4px; }
   .field label { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--on-surface-variant); padding-left: 8px; }
@@ -762,18 +770,8 @@
     </div>
     <div class="field"><label>Saldo inicial</label><input class="input" type="number" step="0.01" name="saldo_inicial" id="ctaSaldo" value="0"></div>
     <div class="field" id="wrapCtaIcono"><label>Icono</label>
-      <select class="select" name="icono" id="ctaIcono">
-        <option value="account_balance_wallet">Cartera</option>
-        <option value="account_balance">Banco</option>
-        <option value="savings">Ahorro</option>
-        <option value="credit_card">Tarjeta</option>
-        <option value="payments">Pagos</option>
-        <option value="trending_up">Inversión</option>
-        <option value="cloud">Digital</option>
-        <option value="home">Vivienda</option>
-        <option value="directions_car">Vehículo</option>
-        <option value="receipt_long">Recibos</option>
-      </select>
+      <input type="hidden" name="icono" id="ctaIcono">
+      <div class="icon-grid" id="ctaIconGrid" data-target="ctaIcono" data-default="account_balance_wallet"></div>
     </div>
     <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
       <button type="button" class="btn btn-secondary" id="ctaCancel" style="flex: 1;">Cancelar</button>
@@ -799,19 +797,8 @@
       <div class="field"><label>Color</label><input class="input" type="color" name="color" id="catColor" value="#00613e" style="height: 50px; padding: 4px;"></div>
     </div>
     <div class="field"><label>Icono</label>
-      <select class="select" name="icono" id="catIcono">
-        <option value="category">General</option>
-        <option value="home">Vivienda</option>
-        <option value="shopping_cart">Compras</option>
-        <option value="directions_car">Transporte</option>
-        <option value="movie">Ocio</option>
-        <option value="fitness_center">Salud</option>
-        <option value="subscriptions">Suscripciones</option>
-        <option value="work">Trabajo</option>
-        <option value="payments">Pagos</option>
-        <option value="receipt_long">Recibos</option>
-        <option value="bolt">Servicios</option>
-      </select>
+      <input type="hidden" name="icono" id="catIcono">
+      <div class="icon-grid" id="catIconGrid" data-target="catIcono" data-default="category"></div>
     </div>
     <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
       <button type="button" class="btn btn-secondary" id="catCancel" style="flex: 1;">Cancelar</button>
@@ -898,6 +885,27 @@ const CAT_ICON_BY_NAME = { 'Vivienda': 'home', 'Alimentación': 'shopping_cart',
 const iconoCat = cat => (cat && cat.icono) || CAT_ICON_BY_NAME[cat && cat.nombre] || 'category';
 const icoCat = cat => ICONOS[iconoCat(cat)] || ICONOS.category;
 const tintCat = (color) => color ? `background: ${color}20; color: ${color};` : 'background: var(--surface-container); color: var(--on-surface-variant);';
+
+const CAT_ICONS = ['category', 'home', 'shopping_cart', 'directions_car', 'movie', 'fitness_center', 'subscriptions', 'work', 'payments', 'receipt_long', 'bolt', 'restaurant', 'school'];
+const CTA_ICONS = ['account_balance_wallet', 'account_balance', 'savings', 'credit_card', 'payments', 'trending_up', 'cloud', 'home', 'directions_car', 'receipt_long'];
+
+function wireIconGrid(grid, icons) {
+  const target = $('#' + grid.dataset.target);
+  grid.innerHTML = icons.map(k => `<button type="button" data-icon="${k}" title="${k}" aria-label="${k}">${ICONOS[k] || ''}</button>`).join('');
+  grid.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-icon]');
+    if (!btn) return;
+    grid.querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b === btn));
+    target.value = btn.dataset.icon;
+  });
+}
+function setIconPick(grid, value) {
+  const target = $('#' + grid.dataset.target);
+  const fallback = grid.dataset.default;
+  const v = value && ICONOS[value] ? value : fallback;
+  target.value = v;
+  grid.querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.icon === v));
+}
 
 const Estado = {
   bootstrap: { cuentas: [], categorias: [], transacciones: [], recurrentes: [], presupuestos: [], resumen: null, sesion: null, version: '' },
@@ -1659,7 +1667,7 @@ function openCuenta(id, parentId) {
   $('#ctaTipo').value = (c && c.tipo) ? c.tipo : 'activo';
   $('#ctaMoneda').value = (c && c.moneda) ? c.moneda : 'EUR';
   $('#ctaSaldo').value = c ? c.saldo_inicial : 0;
-  $('#ctaIcono').value = (c && c.icono) || 'account_balance_wallet';
+  setIconPick($('#ctaIconGrid'), (c && c.icono) || 'account_balance_wallet');
   openSheet('sheetCuenta');
 }
 $('#ctaCancel').addEventListener('click', closeAllSheets);
@@ -1744,7 +1752,7 @@ function openCat(id) {
   $('#catNombre').value = c ? c.nombre : '';
   $('#catTipo').value = c ? c.tipo : 'gasto';
   $('#catColor').value = c ? c.color : '#00613e';
-  $('#catIcono').value = c ? iconoCat(c) : 'category';
+  setIconPick($('#catIconGrid'), c ? iconoCat(c) : 'category');
   openSheet('sheetCat');
 }
 $('#catCancel').addEventListener('click', closeAllSheets);
@@ -1891,6 +1899,9 @@ $('#btnNuevoRec').addEventListener('click', () => openRec());
 $('#btnConciliarTop').addEventListener('click', () => go('conciliar'));
 $('#dashConciliar').addEventListener('click', () => go('conciliar'));
 $('#conOk').addEventListener('click', doConciliar);
+
+wireIconGrid($('#catIconGrid'), CAT_ICONS);
+wireIconGrid($('#ctaIconGrid'), CTA_ICONS);
 
 window.addEventListener('hashchange', () => {
   const r = (location.hash || '#/dashboard').slice(2);
