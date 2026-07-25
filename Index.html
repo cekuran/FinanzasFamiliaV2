@@ -1438,7 +1438,7 @@ async function renderPresupuesto() {
   $('#presPeriodo').textContent = 'Mismo presupuesto cada mes · gastos de ' + new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   $('#presMesLabel').textContent = new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
   const resumen = Estado.bootstrap.resumen || {};
-  const totalGastos = Number(resumen.gastos || 0);
+  const totalGastos = Number(resumen.gastosPresupuesto || 0);
   const totalEsperado = Estado.bootstrap.presupuestos
     .reduce((s, p) => s + Number(p.importe_esperado || 0), 0);
   const pct = totalEsperado > 0 ? Math.min(100, Math.round((totalGastos / totalEsperado) * 100)) : 0;

@@ -814,6 +814,7 @@ function obtenerResumen(anio, mes) {
   });
   const ingresos = enMes.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + Number(t.importe || 0), 0);
   const gastos = enMes.filter(t => t.tipo === 'gasto').reduce((s, t) => s + Number(t.importe || 0), 0);
+  const transferencias = enMes.filter(t => t.tipo === 'transferencia').reduce((s, t) => s + Number(t.importe || 0), 0);
   const pendiente = enMes.filter(t => t.estado === 'pendiente').length;
   const vencido = enMes.filter(t => t.estado === 'vencido').length;
   // Evolución últimos 12 meses
@@ -840,7 +841,7 @@ function obtenerResumen(anio, mes) {
       return null;
     }
   }).filter(Boolean);
-  return { anio: a, mes: m, ingresos, gastos, neto: ingresos - gastos, pendiente, vencido, evol, proximos };
+  return { anio: a, mes: m, ingresos, gastos, gastosPresupuesto: gastos + transferencias, neto: ingresos - gastos, pendiente, vencido, evol, proximos };
 }
 
 function obtenerCategoriasResumen(anio, mes) {
@@ -926,6 +927,7 @@ function __selfTest() {
   const withDestSub = guardarCuenta({ parent_id: destParent.id, nombre: destSubName, saldo_inicial: 0 });
   const destSubId = withDestSub.find(c => c.id === destParent.id).subcuentas.find(s => s.nombre === destSubName).id;
   const realAntesTransferencia = obtenerCategoriasResumen().find(c => c.id === cat[0].id).real;
+  const gastoPresupuestoAntes = obtenerResumen().gastosPresupuesto;
   const txTransfer = guardarTransaccion({
     tipo: 'transferencia', importe: 20,
     cuenta_id: parent.id, subcuenta_id: subId,
@@ -934,6 +936,8 @@ function __selfTest() {
   });
   const realDespuesTransferencia = obtenerCategoriasResumen().find(c => c.id === cat[0].id).real;
   if (realDespuesTransferencia !== realAntesTransferencia + 20) throw new Error('Transferencia no sumó al presupuesto: ' + realDespuesTransferencia);
+  const gastoPresupuestoDespues = obtenerResumen().gastosPresupuesto;
+  if (gastoPresupuestoDespues !== gastoPresupuestoAntes + 20) throw new Error('Transferencia no sumó al gasto actual: ' + gastoPresupuestoDespues);
   const targetAfter = obtenerCuentas().find(c => c.id === destParent.id).subcuentas.find(s => s.id === destSubId);
   if (targetAfter.saldo !== 20) throw new Error('Transferencia no acreditó subcuenta destino: ' + targetAfter.saldo);
   const after = reordenarSubcuentas(parent.id, [anotherId, subId]);
