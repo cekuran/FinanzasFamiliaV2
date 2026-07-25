@@ -1437,7 +1437,11 @@ async function renderPresupuesto() {
   const { anio, mes } = Estado.pres;
   $('#presPeriodo').textContent = 'Mismo presupuesto cada mes · gastos de ' + new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   $('#presMesLabel').textContent = new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
-  const resumen = Estado.bootstrap.resumen || {};
+  const [resumen, resumenCats] = await Promise.all([
+    call('obtenerResumen', anio, mes),
+    call('obtenerCategoriasResumen', anio, mes)
+  ]);
+  if (anio !== Estado.pres.anio || mes !== Estado.pres.mes) return;
   const totalGastos = Number(resumen.gastosPresupuesto || 0);
   const totalEsperado = Estado.bootstrap.presupuestos
     .reduce((s, p) => s + Number(p.importe_esperado || 0), 0);
@@ -1451,7 +1455,6 @@ async function renderPresupuesto() {
   $('#presAhorro').textContent = fmtMoneda(Number(resumen.ingresos || 0) - totalGastos);
   $('#presRec').textContent = '-' + fmtMoneda((resumen.proximos || []).reduce((s, p) => s + Number(p.importe || 0), 0));
 
-  const resumenCats = await call('obtenerCategoriasResumen', anio, mes);
   const cats = Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto');
   $('#presCats').innerHTML = cats.map(c => {
     const r = resumenCats.find(x => x.id === c.id) || { esperado: 0, real: 0, diferencia: 0 };
