@@ -513,7 +513,7 @@ function parseRepartoDestino_(raw) {
   }
   if (!Array.isArray(parsed)) return [];
   return parsed
-    .map(r => ({ subcuenta_id: r && r.subcuenta_id, importe: Number(r && r.importe || 0) }))
+    .map(r => ({ subcuenta_id: r && r.subcuenta_id, importe: Number(r && r.importe || 0), categoria_id: (r && r.categoria_id) || '' }))
     .filter(r => r.subcuenta_id && r.importe > 0);
 }
 
@@ -575,7 +575,7 @@ function guardarTransaccion(tx) {
         const imp = Number(r.importe);
         if (!(imp > 0)) throw new Error('Importe de destino debe ser > 0');
         visto.add(sid);
-        normalizado.push({ subcuenta_id: sid, importe: imp });
+        normalizado.push({ subcuenta_id: sid, importe: imp, categoria_id: (r.categoria_id || '') });
         suma += imp;
       });
       const totalEsperado = tx.importe_destino ? Number(tx.importe_destino) : Number(tx.importe);
