@@ -860,10 +860,20 @@ function obtenerCategoriasResumen(anio, mes) {
     const f = new Date(t.fecha);
     if (f.getFullYear() !== Number(a) || (f.getMonth() + 1) !== Number(m)) return;
     const rep = parseRepartoDestino_(t.reparto_destino);
-    if (rep.length && rep.some(r => r.categoria_id)) {
+    if (rep.length) {
+      let sumaImputada = 0;
       rep.forEach(r => {
-        if (r.categoria_id) porCatRep[r.categoria_id] = (porCatRep[r.categoria_id] || 0) + Number(r.importe || 0);
+        const imp = Number(r.importe || 0);
+        if (!(imp > 0)) return;
+        const catId = r.categoria_id || t.categoria_id || '';
+        if (!catId) return;
+        porCatRep[catId] = (porCatRep[catId] || 0) + imp;
+        sumaImputada += imp;
       });
+      const resto = Number(t.importe || 0) - sumaImputada;
+      if (resto > 0.01 && t.categoria_id) {
+        porCatRep[t.categoria_id] = (porCatRep[t.categoria_id] || 0) + resto;
+      }
     } else if (t.categoria_id) {
       porCatRep[t.categoria_id] = (porCatRep[t.categoria_id] || 0) + Number(t.importe || 0);
     }

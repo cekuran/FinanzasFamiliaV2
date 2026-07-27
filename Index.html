@@ -1511,7 +1511,9 @@ function openTx(id) {
   setTipoTx(f.tipo || 'gasto');
   poblarSelect('#txCuenta', Estado.bootstrap.cuentas, f.cuenta_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCuentaDest', Estado.bootstrap.cuentas, f.cuenta_destino_id, c => c.nombre + ' (' + c.moneda + ')');
-  const cats = f.tipo === 'transferencia' ? Estado.bootstrap.categorias : Estado.bootstrap.categorias.filter(c => c.tipo === f.tipo);
+  const cats = f.tipo === 'transferencia'
+    ? Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto')
+    : Estado.bootstrap.categorias.filter(c => c.tipo === f.tipo);
 poblarSelect('#txCategoria', cats, f.categoria_id, c => c.nombre);
   $('#txDesc').value = f.descripcion || '';
   $('#txImporteDest').value = f.importe_destino || '';
@@ -1543,7 +1545,9 @@ function setTipoTx(tipo) {
   $$('[data-tx-tipo]').forEach(b => b.classList.toggle('is-on', b.dataset.txTipo === tipo));
   $('#wrapCuentaDest').style.display = tipo === 'transferencia' ? '' : 'none';
   $('#wrapConversion').style.display = tipo === 'transferencia' ? '' : 'none';
-  const cats = tipo === 'transferencia' ? Estado.bootstrap.categorias : Estado.bootstrap.categorias.filter(c => c.tipo === tipo);
+  const cats = tipo === 'transferencia'
+    ? Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto')
+    : Estado.bootstrap.categorias.filter(c => c.tipo === tipo);
   poblarSelect('#txCategoria', cats, '', c => c.nombre);
   const lblCat = $('#wrapCategoria label');
   if (lblCat) lblCat.textContent = tipo === 'transferencia' ? 'Categoría origen' : 'Categoría';
@@ -1648,7 +1652,7 @@ function buildRepartoRow(subsD, row, idx) {
   const opts = '<option value="">— Subcuenta —</option>' + subsD.map(s =>
     `<option value="${s.id}" ${s.id === row.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
   ).join('');
-  const catOpts = '<option value="">— Categoría —</option>' + Estado.bootstrap.categorias.map(c =>
+  const catOpts = '<option value="">— Categoría —</option>' + Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto').map(c =>
     `<option value="${c.id}" ${c.id === row.categoria_id ? 'selected' : ''}>${escape(c.nombre)}</option>`
   ).join('');
   div.innerHTML = `
