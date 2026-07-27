@@ -249,6 +249,12 @@
   .table { width: 100%; border-collapse: separate; border-spacing: 0; }
   .table th, .table td { text-align: left; padding: 12px 16px; font-size: 14px; }
   .table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--on-surface-variant); font-weight: 600; border-bottom: 1px solid var(--surface-container); }
+  .table thead th.sort-head { padding: 0; }
+  .table-sort { display: block; width: 100%; padding: 12px 16px; text-align: inherit; text-transform: inherit; letter-spacing: inherit; font-weight: inherit; }
+  .table-sort::after { content: '↕'; margin-left: 4px; opacity: 0.45; }
+  .table-sort:hover, .table-sort.is-active { color: var(--primary); }
+  .table-sort[data-direction="asc"]::after { content: '↑'; opacity: 1; }
+  .table-sort[data-direction="desc"]::after { content: '↓'; opacity: 1; }
   .table tbody tr { border-bottom: 1px solid var(--surface-container); transition: background 0.15s; }
   .table tbody tr:hover { background: var(--surface-container-low); }
   .table tbody tr:last-child { border-bottom: none; }
@@ -492,6 +498,7 @@
         <div class="field-row" style="margin-bottom: var(--s-3);">
           <div class="field"><label>Cuenta</label><select class="select" id="filtroCuenta"><option value="">Todas</option></select></div>
           <div class="field"><label>Tipo</label><select class="select" id="filtroTipo"><option value="">Todos</option><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option><option value="transferencia">Transferencia</option></select></div>
+          <div class="field"><label>Categoría</label><select class="select" id="filtroCategoria"><option value="">Todas</option></select></div>
         </div>
         <div class="field-row" id="wrapFiltroSubcuenta" style="display: none; margin-bottom: var(--s-3);">
           <div class="field"><label>Subcuenta</label><select class="select" id="filtroSubcuenta"><option value="">Todas</option></select></div>
@@ -509,12 +516,12 @@
             <thead>
               <tr>
                 <th class="icon-cell"></th>
-                <th>Fecha</th>
-                <th>Descripción</th>
-                <th>Cuenta</th>
-                <th>Categoría</th>
-                <th>Estado</th>
-                <th class="num">Importe</th>
+                <th class="sort-head" aria-sort="none"><button class="table-sort" type="button" data-mov-sort="fecha" aria-label="Ordenar por fecha">Fecha</button></th>
+                <th class="sort-head" aria-sort="none"><button class="table-sort" type="button" data-mov-sort="descripcion" aria-label="Ordenar por descripción">Descripción</button></th>
+                <th class="sort-head" aria-sort="none"><button class="table-sort" type="button" data-mov-sort="cuenta" aria-label="Ordenar por cuenta">Cuenta</button></th>
+                <th class="sort-head" aria-sort="none"><button class="table-sort" type="button" data-mov-sort="categoria" aria-label="Ordenar por categoría">Categoría</button></th>
+                <th class="sort-head" aria-sort="none"><button class="table-sort" type="button" data-mov-sort="estado" aria-label="Ordenar por estado">Estado</button></th>
+                <th class="sort-head num" aria-sort="none"><button class="table-sort" type="button" data-mov-sort="importe" aria-label="Ordenar por importe">Importe</button></th>
                 <th class="actions"></th>
               </tr>
             </thead>
@@ -988,7 +995,8 @@ function setIconPick(grid, value) {
 
 const Estado = {
   bootstrap: { cuentas: [], categorias: [], transacciones: [], recurrentes: [], presupuestos: [], resumen: null, sesion: null, version: '' },
-  filtros: { cuenta_id: '', subcuenta_id: '', tipo: '', desde: '', hasta: '', q: '' },
+  filtros: { cuenta_id: '', subcuenta_id: '', tipo: '', categoria_id: '', desde: '', hasta: '', q: '' },
+  movOrden: { campo: 'fecha', direccion: 'desc' },
   pres: { anio: new Date().getFullYear(), mes: new Date().getMonth() + 1, asignado: {} },
   txTipo: 'gasto',
   txRepartoDest: [],
@@ -1257,6 +1265,41 @@ async function borrarCuenta(id) {
   catch (e) { toast('Error: ' + e.message); }
 }
 
+function valorOrdenMovimiento(t, campo) {
+  if (campo === 'importe') {
+    const importe = Number(t.importe || 0);
+    return t.tipo === 'gasto' ? -importe : importe;
+  }
+  if (campo === 'fecha') return String(t.fecha || '');
+  if (campo === 'descripcion') return String(t.descripcion || '');
+  if (campo === 'estado') return String(t.estado || '');
+  if (campo === 'cuenta') {
+    const cta = Estado.bootstrap.cuentas.find(c => c.id === t.cuenta_id);
+    return cta ? cta.nombre : '';
+  }
+  if (campo === 'categoria') {
+    const cat = Estado.bootstrap.categorias.find(c => c.id === t.categoria_id);
+    return cat ? cat.nombre : '';
+  }
+  return '';
+}
+function ordenarMovimientos(campo) {
+  const orden = Estado.movOrden;
+  orden.direccion = orden.campo === campo && orden.direccion === 'asc' ? 'desc' : 'asc';
+  orden.campo = campo;
+  renderMovimientos();
+}
+function actualizarOrdenMovimientos() {
+  $$('[data-mov-sort]').forEach(b => {
+    const activo = b.dataset.movSort === Estado.movOrden.campo;
+    b.classList.toggle('is-active', activo);
+    b.dataset.direction = activo ? Estado.movOrden.direccion : '';
+    b.closest('th').setAttribute('aria-sort', activo
+      ? (Estado.movOrden.direccion === 'asc' ? 'ascending' : 'descending')
+      : 'none');
+  });
+}
+
 function renderMovimientos() {
   const f = Estado.filtros;
   let lista = Estado.bootstrap.transacciones.slice();
@@ -1268,12 +1311,27 @@ function renderMovimientos() {
     return rep ? rep.some(r => r.subcuenta_id === f.subcuenta_id) : false;
   });
   if (f.tipo) lista = lista.filter(t => t.tipo === f.tipo);
+  if (f.categoria_id) lista = lista.filter(t => {
+    if (t.categoria_id === f.categoria_id) return true;
+    const reparto = parseRepartoFromTx_(t);
+    return reparto ? reparto.some(r => r.categoria_id === f.categoria_id) : false;
+  });
   if (f.desde) lista = lista.filter(t => String(t.fecha) >= f.desde);
   if (f.hasta) lista = lista.filter(t => String(t.fecha) <= f.hasta);
   if (f.q) {
     const q = f.q.toLowerCase();
     lista = lista.filter(t => String(t.descripcion || '').toLowerCase().includes(q) || String(t.notas || '').toLowerCase().includes(q));
   }
+  const { campo, direccion } = Estado.movOrden;
+  lista.sort((a, b) => {
+    const va = valorOrdenMovimiento(a, campo);
+    const vb = valorOrdenMovimiento(b, campo);
+    const cmp = typeof va === 'number'
+      ? va - vb
+      : String(va).localeCompare(String(vb), 'es', { numeric: true, sensitivity: 'base' });
+    return direccion === 'asc' ? cmp : -cmp;
+  });
+  actualizarOrdenMovimientos();
   $('#movCount').textContent = lista.length;
   $('#movBody').innerHTML = lista.length ? lista.map(t => {
     const cat = Estado.bootstrap.categorias.find(c => c.id === t.categoria_id);
@@ -1908,6 +1966,7 @@ $('#formCat').addEventListener('submit', async (e) => {
       icono: f.get('icono')
     });
     closeAllSheets();
+    poblarFiltros();
     renderCategorias();
     renderMovimientos();
     toast('Categoría guardada');
@@ -1972,6 +2031,9 @@ $('#formRec').addEventListener('submit', async (e) => {
 function poblarFiltros() {
   poblarSelect('#filtroCuenta', Estado.bootstrap.cuentas, Estado.filtros.cuenta_id, c => c.nombre);
   $('#filtroTipo').value = Estado.filtros.tipo;
+  $('#filtroCategoria').innerHTML = '<option value="">Todas</option>' + Estado.bootstrap.categorias.map(c =>
+    `<option value="${c.id}" ${c.id === Estado.filtros.categoria_id ? 'selected' : ''}>${escape(c.nombre)}</option>`
+  ).join('');
   $('#filtroDesde').value = Estado.filtros.desde;
   $('#filtroHasta').value = Estado.filtros.hasta;
   $('#filtroQ').value = Estado.filtros.q;
@@ -1981,6 +2043,7 @@ const FILTRO_KEY = {
   filtroCuenta: 'cuenta_id',
   filtroSubcuenta: 'subcuenta_id',
   filtroTipo: 'tipo',
+  filtroCategoria: 'categoria_id',
   filtroDesde: 'desde',
   filtroHasta: 'hasta',
   filtroQ: 'q'
@@ -2014,6 +2077,7 @@ Object.keys(FILTRO_KEY).forEach(id => {
     renderMovimientos();
   });
 });
+$$('[data-mov-sort]').forEach(b => b.addEventListener('click', () => ordenarMovimientos(b.dataset.movSort)));
 
 function limpiarFiltrosInvalidos() {
   const ctaIds = new Set(), subIds = new Set();
@@ -2027,6 +2091,10 @@ function limpiarFiltrosInvalidos() {
   }
   if (Estado.filtros.subcuenta_id && !subIds.has(Estado.filtros.subcuenta_id)) {
     Estado.filtros.subcuenta_id = '';
+  }
+  const catIds = new Set(Estado.bootstrap.categorias.map(c => c.id));
+  if (Estado.filtros.categoria_id && !catIds.has(Estado.filtros.categoria_id)) {
+    Estado.filtros.categoria_id = '';
   }
 }
 
@@ -2051,6 +2119,7 @@ async function recargar() {
   Estado.bootstrap = normalizarBootstrap(Object.assign({}, base, {
     transacciones: Array.isArray(txs) ? txs : []
   }));
+  limpiarFiltrosInvalidos();
   poblarFiltros();
   if (location.hash.startsWith('#/')) go(location.hash.slice(2));
   else renderDashboard();
