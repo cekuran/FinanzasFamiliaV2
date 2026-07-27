@@ -369,10 +369,12 @@
   .reparto-total-ok { color: var(--primary) !important; }
   .reparto-total-bad { color: var(--error) !important; }
 
-  /* Spinner de carga mientras se esperan respuestas del servidor */
-  .spinner-overlay { position: fixed; inset: 0; z-index: 300; background: color-mix(in srgb, var(--surface) 40%, transparent); backdrop-filter: blur(2px); display: grid; place-items: center; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
-  .spinner-overlay.is-on { opacity: 1; pointer-events: auto; }
+  /* Cargas locales por sección/vista */
   .spinner { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--surface-container-high); border-top-color: var(--primary); animation: spin 0.7s linear infinite; }
+  .loading-block { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s-3); min-height: 140px; padding: var(--s-5) var(--s-4); color: var(--on-surface-variant); text-align: center; }
+  .loading-block .spinner { width: 28px; height: 28px; border-width: 2px; }
+  .loading-table-row { padding: 0 !important; }
+  .loading-table-row .loading-block { min-height: 160px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
@@ -841,8 +843,6 @@
 
 <div class="toast" id="toast"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span id="toastMsg">Listo</span></div>
 
-<div class="spinner-overlay" id="spinnerOverlay" aria-hidden="true"><div class="spinner"></div></div>
-
 <script>
 const EUR = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const fmtMoneda = (v, m) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: m || 'EUR', maximumFractionDigits: 2 }).format(Number(v || 0));
@@ -1015,32 +1015,61 @@ function toast(msg) {
 }
 
 async function call(fn, ...args) {
-  // ponytail: contador para soportar llamadas concurrentes; el spinner se apaga
-  // solo cuando el último pending termina. Mínimo de 250ms para evitar parpadeo
-  // en respuestas rápidas (que son la mayoría desde GAS tras caché del cliente).
-  spinnerInc();
   return new Promise((resolve, reject) => {
     google.script.run
-      .withSuccessHandler(v => { spinnerDec(); resolve(v); })
-      .withFailureHandler(e => { spinnerDec(); reject(e); })[fn](...args);
+      .withSuccessHandler(v => resolve(v))
+      .withFailureHandler(e => reject(e))[fn](...args);
   });
 }
-let _spinnerPending = 0;
-let _spinnerMinTimer = 0;
-function spinnerInc() {
-  _spinnerPending++;
-  if (_spinnerPending === 1) {
-    clearTimeout(_spinnerMinTimer);
-    $('#spinnerOverlay').classList.add('is-on');
-  }
+
+function loadingBlockHtml(msg) {
+  return '<div class="loading-block"><div class="spinner" aria-hidden="true"></div><div class="body-sm">'
+    + escape(msg || 'Cargando...') + '</div></div>';
 }
-function spinnerDec() {
-  _spinnerPending = Math.max(0, _spinnerPending - 1);
-  if (_spinnerPending === 0) {
-    clearTimeout(_spinnerMinTimer);
-    _spinnerMinTimer = setTimeout(() => {
-      if (_spinnerPending === 0) $('#spinnerOverlay').classList.remove('is-on');
-    }, 250);
+
+function loadingTableRowHtml(msg, colspan) {
+  return '<tr><td class="loading-table-row" colspan="' + (colspan || 8) + '">' + loadingBlockHtml(msg) + '</td></tr>';
+}
+
+function getActiveRoute() {
+  const v = $('.view.is-active');
+  return v ? v.dataset.view : 'dashboard';
+}
+
+function setRouteLoading(route) {
+  if (route === 'dashboard') {
+    $('#dashBars').innerHTML = loadingBlockHtml('Actualizando evolución...');
+    $('#dashCuentas').innerHTML = loadingBlockHtml('Actualizando cuentas...');
+    $('#dashTx').innerHTML = loadingBlockHtml('Actualizando movimientos...');
+    $('#dashProx').innerHTML = loadingBlockHtml('Actualizando pagos...');
+  }
+  if (route === 'cuentas') {
+    $('#cuentasList').innerHTML = loadingBlockHtml('Actualizando cuentas...');
+  }
+  if (route === 'movimientos') {
+    $('#movCount').textContent = '...';
+    $('#movBody').innerHTML = loadingTableRowHtml('Actualizando movimientos...', 8);
+  }
+  if (route === 'presupuesto') {
+    $('#presGasto').textContent = '...';
+    $('#presTotal').textContent = '...';
+    $('#presPct').textContent = 'Cargando...';
+    $('#presRest').textContent = '...';
+    $('#presAhorro').textContent = '...';
+    $('#presRec').textContent = '...';
+    $('#presCats').innerHTML = loadingBlockHtml('Actualizando presupuesto...');
+  }
+  if (route === 'recurrentes') {
+    $('#recList').innerHTML = loadingBlockHtml('Actualizando plantillas...');
+  }
+  if (route === 'conciliar') {
+    $('#conCuenta').innerHTML = '<option value="">Cargando...</option>';
+    $('#conSistema').textContent = '...';
+    $('#conDif').textContent = '...';
+    $('#conEstado').textContent = 'Actualizando datos de conciliacion...';
+  }
+  if (route === 'categorias') {
+    $('#catList').innerHTML = loadingBlockHtml('Actualizando categorias...');
   }
 }
 
@@ -1065,6 +1094,14 @@ let _txSyncToken = 0;
 async function sincronizarTransacciones(opciones) {
   const opts = opciones || {};
   const token = ++_txSyncToken;
+  if (opts.showLoading !== false) {
+    const route = getActiveRoute();
+    if (route === 'dashboard') $('#dashTx').innerHTML = loadingBlockHtml('Actualizando movimientos...');
+    if (route === 'movimientos') {
+      $('#movCount').textContent = '...';
+      $('#movBody').innerHTML = loadingTableRowHtml('Actualizando movimientos...', 8);
+    }
+  }
   try {
     const txs = await call('obtenerTransacciones', {});
     if (token !== _txSyncToken) return false;
@@ -1480,6 +1517,7 @@ async function renderPresupuesto() {
   const { anio, mes } = Estado.pres;
   $('#presPeriodo').textContent = 'Mismo presupuesto cada mes · gastos de ' + new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
   $('#presMesLabel').textContent = new Date(anio, mes - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
+  $('#presCats').innerHTML = loadingBlockHtml('Cargando presupuesto...');
   const [resumen, resumenCats] = await Promise.all([
     call('obtenerResumen', anio, mes),
     call('obtenerCategoriasResumen', anio, mes)
@@ -2110,6 +2148,8 @@ function refrescarCuentas() {
 // === Boot ===
 async function recargar() {
   const token = ++_txSyncToken;
+  const route = getActiveRoute();
+  setRouteLoading(route);
   const [base, txs] = await Promise.all([
     call('bootstrapBase'),
     call('obtenerTransacciones', {})
