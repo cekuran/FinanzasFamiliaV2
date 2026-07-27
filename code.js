@@ -851,13 +851,31 @@ function obtenerCategoriasResumen(anio, mes) {
   const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && ['gasto', 'transferencia'].includes(t.tipo));
   const ps = leerHoja('Presupuestos').filter(p => p.owner_email === owner);
   const cats = obtenerCategorias();
+  // Reparto destino de transferencias: cada subcuenta se imputa a su propia
+  // categoría. Si el reparto no lleva categorías por subcuenta, cae al
+  // categoria_id del tx (categoría del origen / transferencia sin desglose).
+  const porCatRep = {};
+  txs.forEach(t => {
+    if (t.tipo !== 'transferencia') return;
+    const f = new Date(t.fecha);
+    if (f.getFullYear() !== Number(a) || (f.getMonth() + 1) !== Number(m)) return;
+    const rep = parseRepartoDestino_(t.reparto_destino);
+    if (rep.length && rep.some(r => r.categoria_id)) {
+      rep.forEach(r => {
+        if (r.categoria_id) porCatRep[r.categoria_id] = (porCatRep[r.categoria_id] || 0) + Number(r.importe || 0);
+      });
+    } else if (t.categoria_id) {
+      porCatRep[t.categoria_id] = (porCatRep[t.categoria_id] || 0) + Number(t.importe || 0);
+    }
+  });
   return cats.map(c => {
     const esperado = ps.filter(p => p.categoria_id === c.id).reduce((s, p) => s + Number(p.importe_esperado || 0), 0);
     const real = txs.filter(t => {
+      if (t.tipo === 'transferencia') return false; // transferencias se cuentan por porCatRep
       if (t.categoria_id !== c.id) return false;
       const f = new Date(t.fecha);
       return f.getFullYear() === Number(a) && (f.getMonth() + 1) === Number(m);
-    }).reduce((s, t) => s + Number(t.importe || 0), 0);
+    }).reduce((s, t) => s + Number(t.importe || 0), 0) + (porCatRep[c.id] || 0);
     return { id: c.id, nombre: c.nombre, color: c.color, esperado, real, diferencia: real - esperado };
   });
 }
@@ -983,6 +1001,32 @@ function __selfTest() {
     });
   } catch (e) { fallido = e.message; }
   if (!fallido || !/suma del reparto/.test(fallido)) throw new Error('No se rechazó reparto con suma incorrecta: ' + fallido);
+
+  // Reparto destino con categorías por subcuenta: cada subcuenta se imputa a
+  // su propia categoría, no en una sola para todo el importe.
+  const catAName = 'self-catA-' + Utilities.getUuid().slice(0, 8);
+  const catBName = 'self-catB-' + Utilities.getUuid().slice(0, 8);
+  const catAId = guardarCategoria({ nombre: catAName, color: '#000000', icono: 'tag', tipo: 'gasto' }).find(c => c.nombre === catAName).id;
+  const catBId = guardarCategoria({ nombre: catBName, color: '#000000', icono: 'tag', tipo: 'gasto' }).find(c => c.nombre === catBName).id;
+  const realAAAntes = obtenerCategoriasResumen().find(c => c.id === catAId).real;
+  const realBAntes = obtenerCategoriasResumen().find(c => c.id === catBId).real;
+  const txCatSplit = guardarTransaccion({
+    tipo: 'transferencia', importe: 50,
+    cuenta_id: parent.id,
+    cuenta_destino_id: destParent.id,
+    reparto_destino: [
+      { subcuenta_id: splitSubA, importe: 30, categoria_id: catAId },
+      { subcuenta_id: splitSubB, importe: 20, categoria_id: catBId }
+    ],
+    descripcion: 'self-cat-split', fecha: isoHoy_()
+  });
+  const realAADespues = obtenerCategoriasResumen().find(c => c.id === catAId).real;
+  const realBDespues = obtenerCategoriasResumen().find(c => c.id === catBId).real;
+  if (realAADespues !== realAAAntes + 30) throw new Error('Reparto no atribuyó 30 a catA: ' + realAADespues);
+  if (realBDespues !== realBAntes + 20) throw new Error('Reparto no atribuyó 20 a catB: ' + realBDespues);
+  eliminarTransaccion(txCatSplit.id);
+  eliminarCategoria(catAId);
+  eliminarCategoria(catBId);
 
   // Cleanup
   eliminarTransaccion(txSub.id);
