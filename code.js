@@ -39,28 +39,115 @@ const SEMILLA = {
 };
 
 // ───────── Helpers de sesión y ss ─────────
-const PROP_SHEET_ID = 'SHEET_ID';
+const PROP_APP_ENV = 'APP_ENV';
+const PROP_SHEET_ID_LEGACY = 'SHEET_ID';
+const ENTORNOS = ['production', 'test'];
+const SHEET_ID_PROP_BY_ENV = {
+  production: 'SHEET_ID_PRODUCTION',
+  test: 'SHEET_ID_TEST'
+};
+
+function normalizarEntorno_(entorno) {
+  const e = String(entorno || '').toLowerCase();
+  return ENTORNOS.includes(e) ? e : 'production';
+}
+
+function entornoActual_() {
+  return normalizarEntorno_(PropertiesService.getScriptProperties().getProperty(PROP_APP_ENV));
+}
+
+function propIdPorEntorno_(entorno) {
+  const e = normalizarEntorno_(entorno);
+  return SHEET_ID_PROP_BY_ENV[e];
+}
+
+function obtenerSheetIdConfigurado_(entorno) {
+  const props = PropertiesService.getScriptProperties();
+  const e = normalizarEntorno_(entorno);
+  const propId = propIdPorEntorno_(e);
+  const id = props.getProperty(propId);
+  if (id) return id;
+  // Migración suave desde configuración antigua de un solo sheet.
+  if (e === 'production') return props.getProperty(PROP_SHEET_ID_LEGACY) || '';
+  return '';
+}
+
+function guardarSheetIdParaEntorno_(entorno, sheetId) {
+  const props = PropertiesService.getScriptProperties();
+  const e = normalizarEntorno_(entorno);
+  const propId = propIdPorEntorno_(e);
+  const id = String(sheetId || '').trim();
+  if (!id) {
+    props.deleteProperty(propId);
+    return '';
+  }
+  props.setProperty(propId, id);
+  // Mantener compatibilidad con despliegues que aún lean SHEET_ID.
+  if (e === 'production') props.setProperty(PROP_SHEET_ID_LEGACY, id);
+  return id;
+}
 
 function ss_() {
   const props = PropertiesService.getScriptProperties();
-  let id = props.getProperty(PROP_SHEET_ID);
-  if (id) {
-    try { return SpreadsheetApp.openById(id); }
+  const env = entornoActual_();
+  const configuredId = obtenerSheetIdConfigurado_(env);
+  if (configuredId) {
+    try { return SpreadsheetApp.openById(configuredId); }
     catch (e) { /* id inválido, recrear */ }
   }
-  // Primera vez (o id corrupto): crear spreadsheet propio para el usuario
-  const ss = SpreadsheetApp.create('Finanzas Familia · ' + email_());
-  props.setProperty(PROP_SHEET_ID, ss.getId());
+  // Primera vez (o id corrupto): crear spreadsheet propio por entorno.
+  const ss = SpreadsheetApp.create('Finanzas Familia [' + env + '] · ' + email_());
+  guardarSheetIdParaEntorno_(env, ss.getId());
   // Mover la hoja "Hoja 1" por defecto al final, queda fuera de la vista
   const porDefecto = ss.getSheets()[0];
   if (porDefecto && ss.getSheets().length === 1) porDefecto.setName('_log');
   return ss;
 }
 
-function resetSheet() {
-  PropertiesService.getScriptProperties().deleteProperty(PROP_SHEET_ID);
+function obtenerConfigSheets() {
+  const env = entornoActual_();
+  return {
+    entorno: env,
+    sheet_id_production: obtenerSheetIdConfigurado_('production'),
+    sheet_id_test: obtenerSheetIdConfigurado_('test')
+  };
+}
+
+function setEntorno(entorno) {
+  const env = normalizarEntorno_(entorno);
+  PropertiesService.getScriptProperties().setProperty(PROP_APP_ENV, env);
+  // Garantiza que el entorno tenga sheet asignado.
   ss_();
-  return 'ok';
+  return obtenerConfigSheets();
+}
+
+function setSheetIdEntorno(entorno, sheetId) {
+  const env = normalizarEntorno_(entorno);
+  const id = String(sheetId || '').trim();
+  if (!id) throw new Error('Debes indicar un sheetId válido.');
+  SpreadsheetApp.openById(id); // Validación temprana.
+  guardarSheetIdParaEntorno_(env, id);
+  return obtenerConfigSheets();
+}
+
+function setSheetIdPruebas(sheetId) {
+  return setSheetIdEntorno('test', sheetId);
+}
+
+function setSheetIdProduccion(sheetId) {
+  return setSheetIdEntorno('production', sheetId);
+}
+
+function resetSheet(entorno) {
+  const env = normalizarEntorno_(entorno || entornoActual_());
+  const props = PropertiesService.getScriptProperties();
+  props.deleteProperty(propIdPorEntorno_(env));
+  if (env === 'production') props.deleteProperty(PROP_SHEET_ID_LEGACY);
+  const previo = props.getProperty(PROP_APP_ENV);
+  props.setProperty(PROP_APP_ENV, env);
+  const ss = ss_();
+  if (previo) props.setProperty(PROP_APP_ENV, normalizarEntorno_(previo));
+  return { entorno: env, sheet_id: ss.getId() };
 }
 
 function email_() {
@@ -201,6 +288,7 @@ function bootstrapBase() {
   generarRecurrentesPendientes_(owner, new Date());
   return {
     sesion: { email: owner },
+    entorno: entornoActual_(),
     version: PropertiesService.getScriptProperties().getProperty('VERSION') || '',
     cuentas: obtenerCuentas(),
     categorias: obtenerCategorias(),
