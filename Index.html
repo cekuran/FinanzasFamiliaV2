@@ -123,7 +123,42 @@
     background: var(--primary-container); color: var(--on-primary-container);
     display: grid; place-items: center; font-weight: 700;
   }
+  .avatar-btn {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: var(--r-full);
+  }
+  .avatar-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
   .brand h1 { font-size: 18px; font-weight: 700; color: var(--primary); margin: 0; letter-spacing: -0.01em; }
+  .user-menu { position: relative; }
+  .user-dropdown {
+    position: absolute; top: calc(100% + 10px); left: 0; z-index: 120;
+    min-width: 220px; padding: var(--s-2);
+    background: var(--surface-container-lowest);
+    border: 1px solid var(--surface-container);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-pop);
+    display: none;
+  }
+  .user-dropdown.is-open { display: block; }
+  .user-dropdown-head {
+    padding: var(--s-3); margin-bottom: var(--s-1);
+    border-bottom: 1px solid var(--surface-container);
+  }
+  .user-dropdown-name { font-size: 14px; font-weight: 700; }
+  .user-dropdown-sub { font-size: 12px; color: var(--on-surface-variant); }
+  .user-dropdown-item {
+    width: 100%; display: flex; align-items: center; gap: var(--s-3);
+    padding: 10px 12px; border-radius: var(--r-md);
+    color: var(--on-surface); text-align: left;
+  }
+  .user-dropdown-item:hover { background: var(--surface-container-low); }
+  .user-dropdown-item.is-danger { color: var(--error); }
+  .user-dropdown-item .ico { width: 18px; height: 18px; }
 
   .sidebar {
     display: none; position: fixed; top: 0; left: 0; bottom: 0; width: 280px;
@@ -131,6 +166,7 @@
     padding: var(--s-5) var(--s-3); flex-direction: column; gap: var(--s-2);
   }
   @media (min-width: 900px) { .sidebar { display: flex; } }
+  @media (min-width: 900px) { .sidebar .user-dropdown { left: 0; right: auto; } }
   .nav-item {
     display: flex; align-items: center; gap: var(--s-3);
     padding: var(--s-3) var(--s-4); border-radius: var(--r-xl);
@@ -435,8 +471,26 @@
 <div class="app" style="display:none;">
   <!-- Sidebar (desktop) -->
   <aside class="sidebar">
-    <div class="brand" style="padding: 8px 12px 16px;">
-      <div class="avatar" id="avatar">U</div>
+    <div class="brand" style="padding: 8px 12px 16px; align-items: flex-start;">
+      <div class="user-menu">
+        <button class="avatar-btn" id="avatarMenuBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Opciones de usuario">
+          <div class="avatar" id="avatar">U</div>
+        </button>
+        <div class="user-dropdown" id="userDropdown" role="menu" aria-label="Opciones de usuario">
+          <div class="user-dropdown-head">
+            <div class="user-dropdown-name" data-menu-user>—</div>
+            <div class="user-dropdown-sub">Tu sesión y preferencias</div>
+          </div>
+          <button class="user-dropdown-item" type="button" data-menu-go="configuracion" role="menuitem">
+            <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.96 7.96 0 0 0 .06-.94 7.96 7.96 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.28 7.28 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.96 7.96 0 0 0-.06.94c0 .32.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.51.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>
+            Configuración
+          </button>
+          <button class="user-dropdown-item is-danger" type="button" data-menu-logout role="menuitem">
+            <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M10 17v-3H3v-4h7V7l5 5zm3-12h6v14h-6v-2h4V7h-4z"/></svg>
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
       <div>
         <div style="font-size: 16px; font-weight: 700; color: var(--on-surface);">Finanzas Familia</div>
         <div style="font-size: 12px; color: var(--on-surface-variant);" id="userName">—</div>
@@ -450,14 +504,31 @@
     <div class="nav-item" data-route="conciliar"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg> Conciliar</div>
     <div class="nav-item" data-route="categorias"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4v6h6zm10 0h-6v6h6zM10 14H4v6h6zm10 0h-6v6h6z"/></svg> Categorías</div>
     <div class="nav-item" data-route="admin"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4-2.1-.6a6.9 6.9 0 0 0-.5-1.2l1.2-1.8-1.4-1.4-1.8 1.2c-.4-.2-.8-.4-1.2-.5L14 3h-2l-.6 2.1c-.4.1-.8.3-1.2.5L8.4 4.4 7 5.8l1.2 1.8c-.2.4-.4.8-.5 1.2L5.6 9v2l2.1.6c.1.4.3.8.5 1.2L7 14.6l1.4 1.4 1.8-1.2c.4.2.8.4 1.2.5L12 17h2l.6-2.1c.4-.1.8-.3 1.2-.5l1.8 1.2 1.4-1.4-1.2-1.8c.2-.4.4-.8.5-1.2L21 11z"/></svg> Admin</div>
-    <div class="nav-item" data-route="configuracion"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.96 7.96 0 0 0 .06-.94 7.96 7.96 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.28 7.28 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.96 7.96 0 0 0-.06.94c0 .32.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.51.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg> Configuración</div>
     <div class="sidebar-foot" id="sidebarFoot">Finanzas Familia</div>
   </aside>
 
   <!-- Header -->
   <header class="header">
     <div class="brand">
-      <div class="avatar" id="avatarM">U</div>
+      <div class="user-menu">
+        <button class="avatar-btn" id="avatarMenuBtnMobile" type="button" aria-haspopup="menu" aria-expanded="false" title="Opciones de usuario">
+          <div class="avatar" id="avatarM">U</div>
+        </button>
+        <div class="user-dropdown" id="userDropdownMobile" role="menu" aria-label="Opciones de usuario">
+          <div class="user-dropdown-head">
+            <div class="user-dropdown-name" data-menu-user>—</div>
+            <div class="user-dropdown-sub">Tu sesión y preferencias</div>
+          </div>
+          <button class="user-dropdown-item" type="button" data-menu-go="configuracion" role="menuitem">
+            <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.96 7.96 0 0 0 .06-.94 7.96 7.96 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.28 7.28 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.96 7.96 0 0 0-.06.94c0 .32.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.51.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>
+            Configuración
+          </button>
+          <button class="user-dropdown-item is-danger" type="button" data-menu-logout role="menuitem">
+            <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M10 17v-3H3v-4h7V7l5 5zm3-12h6v14h-6v-2h4V7h-4z"/></svg>
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
       <h1>Finanzas</h1>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
@@ -791,7 +862,6 @@
     <div class="bn-item" data-route="recurrentes"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l5-4-5-4v3H5v6h2zm10 10H7v-3l-5 4 5 4v-3h12v-6h-2z"/></svg>Recurr.</div>
     <div class="bn-item" data-route="categorias"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4H4v6h6zm10 0h-6v6h6zM10 14H4v6h6zm10 0h-6v6h6z"/></svg>Categor.</div>
     <div class="bn-item" data-route="admin"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4-2.1-.6a6.9 6.9 0 0 0-.5-1.2l1.2-1.8-1.4-1.4-1.8 1.2c-.4-.2-.8-.4-1.2-.5L14 3h-2l-.6 2.1c-.4.1-.8.3-1.2.5L8.4 4.4 7 5.8l1.2 1.8c-.2.4-.4.8-.5 1.2L5.6 9v2l2.1.6c.1.4.3.8.5 1.2L7 14.6l1.4 1.4 1.8-1.2c.4.2.8.4 1.2.5L12 17h2l.6-2.1c.4-.1.8-.3 1.2-.5l1.8 1.2 1.4-1.4-1.2-1.8c.2-.4.4-.8.5-1.2L21 11z"/></svg>Admin</div>
-    <div class="bn-item" data-route="configuracion"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.96 7.96 0 0 0 .06-.94 7.96 7.96 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.28 7.28 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.96 7.96 0 0 0-.06.94c0 .32.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.51.41 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .5.42h3.84a.5.5 0 0 0 .5-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>Config.</div>
   </nav>
 
   <button class="fab" id="fab" title="Nueva transacción"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></button>
@@ -1223,6 +1293,7 @@ async function iniciarAppAutenticada() {
   $('#avatar').textContent = (user[0] || 'U').toUpperCase();
   $('#avatarM').textContent = (user[0] || 'U').toUpperCase();
   $('#userName').textContent = user;
+  $$('[data-menu-user]').forEach(el => { el.textContent = user; });
   poblarFiltros();
   go('dashboard');
   sincronizarTransacciones({ render: true, toastOnError: true });
@@ -1348,6 +1419,21 @@ function renderConfiguracion() {
   $('#cfgUserName').textContent = user;
 }
 
+function closeUserMenus() {
+  $$('.user-dropdown').forEach(menu => menu.classList.remove('is-open'));
+  ['#avatarMenuBtn', '#avatarMenuBtnMobile'].forEach(sel => {
+    const btn = $(sel);
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function toggleUserMenu(button, menu) {
+  const willOpen = !menu.classList.contains('is-open');
+  closeUserMenus();
+  menu.classList.toggle('is-open', willOpen);
+  button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+
 let _txSyncToken = 0;
 
 async function sincronizarTransacciones(opciones) {
@@ -1392,6 +1478,7 @@ function go(route) {
   if (route === 'admin') renderAdmin();
   if (route === 'configuracion') renderConfiguracion();
   if (route === 'dashboard') renderDashboard();
+  closeUserMenus();
 }
 
 $$('.nav-item, .bn-item').forEach(n => n.addEventListener('click', () => go(n.dataset.route)));
@@ -2461,12 +2548,37 @@ $('#authForm').addEventListener('submit', async (e) => {
   }
 });
 
-$('#cfgLogout').addEventListener('click', async () => {
+async function cerrarSesion() {
   const token = localStorage.getItem(AUTH_TOKEN_KEY) || '';
   try { await call('logoutUsuario', token); } catch (_) { /* ignore */ }
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_IS_LOGGED_KEY);
+  closeUserMenus();
   mostrarLogin();
+}
+
+$('#cfgLogout').addEventListener('click', cerrarSesion);
+$$('[data-menu-logout]').forEach(btn => btn.addEventListener('click', cerrarSesion));
+
+[
+  ['#avatarMenuBtn', '#userDropdown'],
+  ['#avatarMenuBtnMobile', '#userDropdownMobile']
+].forEach(([btnSel, menuSel]) => {
+  const btn = $(btnSel);
+  const menu = $(menuSel);
+  if (!btn || !menu) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleUserMenu(btn, menu);
+  });
+  menu.addEventListener('click', e => e.stopPropagation());
+});
+
+$$('[data-menu-go]').forEach(btn => btn.addEventListener('click', () => go(btn.dataset.menuGo)));
+
+document.addEventListener('click', closeUserMenus);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeUserMenus();
 });
 
 $('#cfgPassForm').addEventListener('submit', async (e) => {
