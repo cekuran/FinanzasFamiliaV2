@@ -45,7 +45,6 @@ const SEMILLA = {
 // ───────── Helpers de sesión y ss ─────────
 const PROP_APP_ENV = 'APP_ENV';
 const PROP_SHEET_ID_LEGACY = 'SHEET_ID';
-const PROP_AUTH_PREFIX = 'AUTH_USER_';
 const PROP_TOKEN_PREFIX = 'AUTH_TOKEN_';
 const ENTORNOS = ['production', 'test'];
 const SHEET_ID_PROP_BY_ENV = {
@@ -57,39 +56,40 @@ const AUTH_SHEET_ID_PROP_BY_ENV = {
   test: 'AUTH_SHEET_ID_TEST'
 };
 
-function tempUserKey_() {
-  const tk = Session.getTemporaryActiveUserKey();
-  if (tk) return tk;
-  return 'anon';
-}
-
-function authMapKey_() {
-  return PROP_AUTH_PREFIX + tempUserKey_();
-}
+// ponytail: token cacheado de la invocación actual. La auth real vive en
+// ScriptProperties (PROP_TOKEN_PREFIX_<env>_<token>); este var evita tener
+// que pasar el token por cada helper. Antes se usaba
+// Session.getTemporaryActiveUserKey() como parte de la clave de caché, pero
+// bajo USER_DEPLOYING devuelve la misma clave para todos los visitantes y
+// filtraba los datos del deployer.
+let _currentToken = '';
 
 function tokenMapKey_(token) {
   return PROP_TOKEN_PREFIX + normalizarEntorno_(entornoActual_()) + '_' + String(token || '').trim();
 }
 
-function usuarioAutenticado_() {
-  const u = PropertiesService.getScriptProperties().getProperty(authMapKey_());
-  return u ? String(u).trim() : '';
-}
-
-function setUsuarioAutenticado_(username) {
-  const u = String(username || '').trim();
-  if (!u) throw new Error('Usuario inválido');
-  PropertiesService.getScriptProperties().setProperty(authMapKey_(), u);
-}
-
-function clearUsuarioAutenticado_() {
-  PropertiesService.getScriptProperties().deleteProperty(authMapKey_());
+function currentUser_() {
+  if (!_currentToken) return '';
+  return validarTokenSesion_(_currentToken);
 }
 
 function requireUsuario_() {
-  const u = usuarioAutenticado_();
+  const u = currentUser_();
   if (!u) throw new Error('No autenticado');
   return u;
+}
+
+// Despacho autenticado: valida el token contra ScriptProperties, lo cachea
+// en _currentToken y ejecuta la función pedida. Sustituye al patrón
+// setAuthToken + fn en dos invocaciones (la caché no sobrevive entre
+// invocaciones de google.script.run).
+function _authadmin(token, fnName, ...args) {
+  const username = validarTokenSesion_(token);
+  if (!username) throw new Error('No autenticado');
+  _currentToken = String(token || '').trim();
+  const fn = globalThis[fnName];
+  if (typeof fn !== 'function') throw new Error('Función no encontrada: ' + fnName);
+  return fn.apply(null, args);
 }
 
 function bytesHex_(bytes) {
@@ -161,12 +161,9 @@ function buscarUsuario_(username) {
 
 function authStatus(token) {
   const tokenUser = validarTokenSesion_(token);
-  if (tokenUser) {
-    setUsuarioAutenticado_(tokenUser);
-    return { authenticated: true, user: tokenUser };
-  }
-  const user = usuarioAutenticado_();
-  return { authenticated: !!user, user: user || '' };
+  if (tokenUser) _currentToken = String(token || '').trim();
+  else _currentToken = '';
+  return { authenticated: !!tokenUser, user: tokenUser || '' };
 }
 
 function loginUsuario(username, password) {
@@ -178,7 +175,6 @@ function loginUsuario(username, password) {
   if (!found || String(found.activo) === 'false') throw new Error('Credenciales inválidas');
   const hash = passwordHash_(pass, String(found.salt || ''));
   if (hash !== String(found.password_hash || '')) throw new Error('Credenciales inválidas');
-  setUsuarioAutenticado_(found.username);
   const token = crearTokenSesion_(found.username);
   return { ok: true, user: found.username, token: token };
 }
@@ -186,13 +182,13 @@ function loginUsuario(username, password) {
 function setAuthToken(token) {
   const username = validarTokenSesion_(token);
   if (!username) throw new Error('No autenticado');
-  setUsuarioAutenticado_(username);
+  _currentToken = String(token || '').trim();
   return { ok: true, user: username };
 }
 
 function logoutUsuario(token) {
   invalidarTokenSesion_(token);
-  clearUsuarioAutenticado_();
+  _currentToken = '';
   return { ok: true };
 }
 
@@ -302,7 +298,7 @@ function ss_() {
     catch (e) { /* id inválido, recrear */ }
   }
   // Primera vez (o id corrupto): crear spreadsheet propio por entorno.
-  const ss = SpreadsheetApp.create('Finanzas Familia [' + env + '] · ' + tempUserKey_().slice(0, 10));
+  const ss = SpreadsheetApp.create('Finanzas Familia [' + env + ']');
   guardarSheetIdParaEntorno_(env, ss.getId());
   // Mover la hoja "Hoja 1" por defecto al final, queda fuera de la vista
   const porDefecto = ss.getSheets()[0];
@@ -317,7 +313,7 @@ function authSs_() {
     try { return SpreadsheetApp.openById(configuredId); }
     catch (e) { /* id inválido, recrear */ }
   }
-  const ss = SpreadsheetApp.create('Finanzas Familia Auth [' + env + '] · ' + tempUserKey_().slice(0, 10));
+  const ss = SpreadsheetApp.create('Finanzas Familia Auth [' + env + ']');
   guardarAuthSheetIdParaEntorno_(env, ss.getId());
   const porDefecto = ss.getSheets()[0];
   if (porDefecto && ss.getSheets().length === 1) porDefecto.setName('_log');
@@ -1080,7 +1076,7 @@ function upsertRecurrenteBase_(owner, tx) {
 }
 
 function generarRecurrentesPendientes_(owner, fechaCorte) {
-  const actor = usuarioAutenticado_() || owner;
+  const actor = currentUser_() || owner;
   const recs = leerHoja('Recurrentes').filter(r => r.owner === owner && r.activa);
   const txs = leerHoja('Transacciones');
   let cambios = false;

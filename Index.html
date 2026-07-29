@@ -1131,7 +1131,7 @@ function rawCall(fn, ...args) {
 async function call(fn, ...args) {
   const token = localStorage.getItem(AUTH_TOKEN_KEY);
   if (token && fn !== 'loginUsuario' && fn !== 'authStatus' && fn !== 'logoutUsuario' && fn !== 'setAuthToken') {
-    await rawCall('setAuthToken', token);
+    return rawCall('_authadmin', token, fn, ...args);
   }
   return rawCall(fn, ...args);
 }
