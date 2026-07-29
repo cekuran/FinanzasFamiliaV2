@@ -5,7 +5,7 @@
 const SCHEMA = {
   Cuentas:       ['owner_email','id','parent_id','nombre','tipo','moneda','icono','saldo_inicial','orden','oculta','fecha_creacion'],
   Categorias:    ['owner_email','id','nombre','color','icono','tipo','orden'],
-  Transacciones: ['owner_email','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','subcuenta_destino_id','importe_destino','ratio_conversion','reparto_destino','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion'],
+  Transacciones: ['owner_email','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','subcuenta_destino_id','importe_destino','ratio_conversion','reparto_destino','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion','ultima_edicion_por','fecha_ultima_edicion'],
   Recurrentes:   ['owner_email','id','plantilla','ultima_generacion','activa'],
   Presupuestos:  ['owner_email','id','anio','mes','categoria_id','importe_esperado'],
   Conciliaciones:['owner_email','id','fecha','cuenta_id','saldo_sistema','saldo_banco','diferencia','notas'],
@@ -46,6 +46,7 @@ const SEMILLA = {
 const PROP_APP_ENV = 'APP_ENV';
 const PROP_SHEET_ID_LEGACY = 'SHEET_ID';
 const PROP_AUTH_PREFIX = 'AUTH_USER_';
+const PROP_OWNER_PREFIX = 'AUTH_OWNER_';
 const ENTORNOS = ['production', 'test'];
 const SHEET_ID_PROP_BY_ENV = {
   production: 'SHEET_ID_PRODUCTION',
@@ -68,6 +69,10 @@ function authMapKey_() {
   return PROP_AUTH_PREFIX + tempUserKey_();
 }
 
+function ownerMapKey_(username) {
+  return PROP_OWNER_PREFIX + normalizarEntorno_(entornoActual_()) + '_' + String(username || '').trim().toLowerCase();
+}
+
 function usuarioAutenticado_() {
   const u = PropertiesService.getScriptProperties().getProperty(authMapKey_());
   return u ? String(u).trim() : '';
@@ -87,6 +92,39 @@ function requireUsuario_() {
   const u = usuarioAutenticado_();
   if (!u) throw new Error('No autenticado');
   return u;
+}
+
+function existeOwnerEnDatos_(owner) {
+  if (!owner) return false;
+  const cuentas = leerHoja('Cuentas');
+  if (cuentas.some(c => c.owner_email === owner)) return true;
+  const txs = leerHoja('Transacciones');
+  return txs.some(t => t.owner_email === owner);
+}
+
+function resolverOwnerParaAuth_(username) {
+  const user = String(username || '').trim();
+  if (!user) return '';
+  const props = PropertiesService.getScriptProperties();
+  const key = ownerMapKey_(user);
+  const guardado = props.getProperty(key);
+  if (guardado) return guardado;
+
+  // Compatibilidad: si hay datos legacy por email Google, vincularlos al primer
+  // usuario administrativo para no "perder" transacciones al activar login.
+  const sessionEmail = Session.getActiveUser().getEmail();
+  if (user.toLowerCase() === 'admin' && sessionEmail && existeOwnerEnDatos_(sessionEmail)) {
+    props.setProperty(key, sessionEmail);
+    return sessionEmail;
+  }
+
+  props.setProperty(key, user);
+  return user;
+}
+
+function ownerActual_() {
+  const authUser = requireUsuario_();
+  return resolverOwnerParaAuth_(authUser);
 }
 
 function bytesHex_(bytes) {
@@ -152,6 +190,7 @@ function loginUsuario(username, password) {
   const hash = passwordHash_(pass, String(found.salt || ''));
   if (hash !== String(found.password_hash || '')) throw new Error('Credenciales inválidas');
   setUsuarioAutenticado_(found.username);
+  resolverOwnerParaAuth_(found.username);
   return { ok: true, user: found.username };
 }
 
@@ -413,7 +452,7 @@ function resetSheet(entorno) {
 }
 
 function email_() {
-  return requireUsuario_();
+  return ownerActual_();
 }
 function uid_(prefixo) { return (prefixo || 'id') + '_' + Utilities.getUuid().slice(0, 8); }
 function isoHoy_() { return new Date().toISOString().slice(0, 10); }
@@ -539,7 +578,7 @@ function bootstrap() {
 // Bootstrap ligero para carga progresiva en el cliente.
 // Devuelve todo menos transacciones para que la UI pinte antes.
 function bootstrapBase() {
-  const owner = requireUsuario_();
+  const owner = email_();
   migrarEsquema();
   asegurarUsuarios_();
   sembrar(owner);
@@ -563,7 +602,7 @@ function incluir(html) { return HtmlService.createHtmlOutputFromFile(html).getCo
 function obtenerCuentas() {
   const owner = email_();
   const cuentas = leerHoja('Cuentas').filter(c => c.owner_email === owner && !c.oculta);
-  const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner);
+  const txs = leerHoja('Transacciones');
   const fmtMes = d => Utilities.formatDate(d, ss_().getSpreadsheetTimeZone(), 'yyyy-MM');
 
   const top = cuentas.filter(c => !c.parent_id);
@@ -705,7 +744,6 @@ function normalizarSubcuentasHuerfanas_(owner) {
   );
   let cambios = false;
   const txs = leerHoja('Transacciones').map(t => {
-    if (t.owner_email !== owner) return t;
     let nuevo = t;
     if (t.subcuenta_id && !validas.has(t.cuenta_id + '|' + t.subcuenta_id)) {
       cambios = true;
@@ -786,7 +824,7 @@ function eliminarCuenta(id) {
     const tieneSubs = todas.some(c => c.parent_id === id);
     if (tieneSubs) throw new Error('La cuenta tiene subcuentas. Elimínalas primero.');
   }
-  const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && (
+  const txs = leerHoja('Transacciones').filter(t => (
     (t.cuenta_id === id || t.cuenta_destino_id === id) ||
     (esSub && t.subcuenta_id === id && t.cuenta_id === cuenta.parent_id) ||
     (esSub && t.subcuenta_destino_id === id && t.cuenta_destino_id === cuenta.parent_id)
@@ -865,9 +903,8 @@ function parseRepartoDestino_(raw) {
 }
 
 function obtenerTransacciones(filtro) {
-  const owner = email_();
   filtro = filtro || {};
-  let txs = leerHoja('Transacciones').filter(t => t.owner_email === owner);
+  let txs = leerHoja('Transacciones');
   if (filtro.cuenta_id) txs = txs.filter(t => t.cuenta_id === filtro.cuenta_id || t.cuenta_destino_id === filtro.cuenta_id);
   if (filtro.tipo) txs = txs.filter(t => t.tipo === filtro.tipo);
   if (filtro.estado) txs = txs.filter(t => t.estado === filtro.estado);
@@ -889,6 +926,7 @@ function obtenerTransacciones(filtro) {
 
 function guardarTransaccion(tx) {
   const owner = email_();
+  const actor = requireUsuario_();
   if (!tx) throw new Error('Transacción vacía');
   const tipo = tx.tipo;
   if (!['gasto', 'ingreso', 'transferencia'].includes(tipo)) throw new Error('Tipo inválido');
@@ -896,9 +934,12 @@ function guardarTransaccion(tx) {
   if (!(Number(tx.importe) > 0)) throw new Error('Importe debe ser > 0');
   const fecha = parseFecha(tx.fecha);
   if (!fecha) throw new Error('Fecha inválida');
+  const txs = leerHoja('Transacciones');
+  const existente = tx.id ? txs.find(t => t.id === tx.id) : null;
+  const ownerTx = (existente && existente.owner_email) ? existente.owner_email : owner;
   let subcuenta_id = '';
   if (tx.subcuenta_id) {
-    const sub = leerHoja('Cuentas').find(c => c.owner_email === owner && c.id === tx.subcuenta_id && c.parent_id === tx.cuenta_id);
+    const sub = leerHoja('Cuentas').find(c => c.owner_email === ownerTx && c.id === tx.subcuenta_id && c.parent_id === tx.cuenta_id);
     if (!sub) throw new Error('Subcuenta no encontrada o no pertenece a la cuenta');
     subcuenta_id = tx.subcuenta_id;
   }
@@ -909,7 +950,7 @@ function guardarTransaccion(tx) {
     const cuentasHoja = leerHoja('Cuentas');
     if (repartoRaw && repartoRaw.length) {
       const subValidas = new Set(
-        cuentasHoja.filter(c => c.owner_email === owner && c.parent_id === tx.cuenta_destino_id).map(c => c.id)
+        cuentasHoja.filter(c => c.owner_email === ownerTx && c.parent_id === tx.cuenta_destino_id).map(c => c.id)
       );
       const visto = new Set();
       const normalizado = [];
@@ -934,7 +975,7 @@ function guardarTransaccion(tx) {
       // encontrando la tx mientras conviven datos nuevos y viejos.
       subcuenta_destino_id = normalizado[0].subcuenta_id;
     } else if (tx.subcuenta_destino_id) {
-      const subd = cuentasHoja.find(c => c.owner_email === owner && c.id === tx.subcuenta_destino_id && c.parent_id === tx.cuenta_destino_id);
+      const subd = cuentasHoja.find(c => c.owner_email === ownerTx && c.id === tx.subcuenta_destino_id && c.parent_id === tx.cuenta_destino_id);
       if (!subd) throw new Error('Subcuenta destino no encontrada o no pertenece a la cuenta destino');
       subcuenta_destino_id = tx.subcuenta_destino_id;
     }
@@ -942,7 +983,7 @@ function guardarTransaccion(tx) {
     throw new Error('Subcuenta destino solo aplica a transferencias');
   }
   const fila = {
-    owner_email: owner,
+    owner_email: ownerTx,
     id: tx.id || uid_('tx'),
     fecha: iso_(fecha),
     tipo,
@@ -962,7 +1003,9 @@ function guardarTransaccion(tx) {
     fecha_pago: tx.fecha_pago ? iso_(tx.fecha_pago) : '',
     conciliada_con: tx.conciliada_con || '',
     notas: tx.notas || '',
-    fecha_creacion: tx.fecha_creacion || isoAhora_()
+    fecha_creacion: (existente && existente.fecha_creacion) || tx.fecha_creacion || isoAhora_(),
+    ultima_edicion_por: actor,
+    fecha_ultima_edicion: isoAhora_()
   };
   if (fila.tipo === 'transferencia' && !fila.cuenta_destino_id) throw new Error('Cuenta destino obligatoria en transferencia');
   if (fila.tipo === 'transferencia' && fila.cuenta_destino_id === fila.cuenta_id) throw new Error('La cuenta destino no puede ser la misma que la cuenta origen');
@@ -976,8 +1019,8 @@ function guardarTransaccion(tx) {
 }
 
 function eliminarTransaccion(id) {
-  const owner = email_();
-  eliminarFila('Transacciones', owner, id);
+  const datos = leerHoja('Transacciones').filter(t => t.id !== id);
+  escribirHoja('Transacciones', datos);
   return { ok: true };
 }
 
@@ -1034,8 +1077,9 @@ function upsertRecurrenteBase_(owner, tx) {
 }
 
 function generarRecurrentesPendientes_(owner, fechaCorte) {
+  const actor = usuarioAutenticado_() || owner;
   const recs = leerHoja('Recurrentes').filter(r => r.owner_email === owner && r.activa);
-  const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner);
+  const txs = leerHoja('Transacciones');
   let cambios = false;
   recs.forEach(r => {
     try {
@@ -1060,7 +1104,9 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
             reparto_destino: p.reparto_destino || '',
             categoria_id: p.categoria_id || '', descripcion: p.descripcion || '',
             estado: 'pendiente', recurrente_id: r.id, fecha_pago: '', conciliada_con: '', notas: '',
-            fecha_creacion: isoAhora_()
+            fecha_creacion: isoAhora_(),
+            ultima_edicion_por: actor,
+            fecha_ultima_edicion: isoAhora_()
           });
           cambios = true;
         }
@@ -1132,7 +1178,7 @@ function conciliar(cuenta_id, saldo_banco, fecha) {
   const sistema = cta ? cta.saldo : 0;
   const banco = Number(saldo_banco);
   const diferencia = +(banco - sistema).toFixed(2);
-  const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && (t.cuenta_id === cuenta_id || t.cuenta_destino_id === cuenta_id));
+  const txs = leerHoja('Transacciones').filter(t => (t.cuenta_id === cuenta_id || t.cuenta_destino_id === cuenta_id));
   const nuevasTxs = txs.map(t => Object.assign({}, t, { estado: 'conciliado', fecha_pago: fecha || isoHoy_() }));
   const todas = leerHoja('Transacciones').map(t => {
     const nueva = nuevasTxs.find(n => n.id === t.id);
@@ -1154,7 +1200,7 @@ function obtenerResumen(anio, mes) {
   const owner = email_();
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
-  const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner);
+  const txs = leerHoja('Transacciones');
   const enMes = txs.filter(t => {
     const f = new Date(t.fecha);
     return f.getFullYear() === Number(a) && (f.getMonth() + 1) === Number(m);
@@ -1195,7 +1241,7 @@ function obtenerCategoriasResumen(anio, mes) {
   const owner = email_();
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
-  const txs = leerHoja('Transacciones').filter(t => t.owner_email === owner && ['gasto', 'transferencia'].includes(t.tipo));
+  const txs = leerHoja('Transacciones').filter(t => ['gasto', 'transferencia'].includes(t.tipo));
   const ps = leerHoja('Presupuestos').filter(p => p.owner_email === owner);
   const cats = obtenerCategorias();
   // Reparto destino de transferencias: cada subcuenta se imputa a su propia

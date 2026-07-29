@@ -941,6 +941,20 @@ const fmtMoneda = (v, m) => new Intl.NumberFormat('es-ES', { style: 'currency', 
 const fmtNum = (v, m) => fmtMoneda(v, m);
 const fmtDec = (v, dec = 2) => Number(v || 0).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const fmtRatio = (v) => Number(v || 0).toLocaleString('es-ES', { maximumFractionDigits: 6 });
+function fmtFechaHora(v) {
+  if (!v) return '—';
+  const raw = String(v).trim();
+  if (!raw) return '—';
+  // Evita desfases de dia cuando llega una fecha sin hora.
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? new Date(raw + 'T12:00:00')
+    : new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleString('es-ES', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  });
+}
 const MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const fmtMesCorto = (s) => { const [y, m] = String(s).split('-'); return MES_ABBR[Number(m) - 1] + " '" + y.slice(2); };
 const escape = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1606,7 +1620,7 @@ function renderMovimientos() {
     return `<tr>
       <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat)}</div></td>
       <td>${escape(t.fecha)}</td>
-      <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}</td>
+      <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}<div class="body-sm" style="color: var(--on-surface-variant);">Alta: ${escape(t.owner_email || '—')} · Última edición: ${escape(t.ultima_edicion_por || t.owner_email || '—')} · ${escape(fmtFechaHora(t.fecha_ultima_edicion))}</div></td>
       <td>${cuentaHtml}</td>
       <td>${escape(cat ? cat.nombre : '—')}</td>
       <td><span class="pill ${pill}">${escape(t.estado)}</span></td>
