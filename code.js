@@ -60,8 +60,6 @@ const AUTH_SHEET_ID_PROP_BY_ENV = {
 function tempUserKey_() {
   const tk = Session.getTemporaryActiveUserKey();
   if (tk) return tk;
-  const em = Session.getActiveUser().getEmail();
-  if (em) return em;
   return 'anon';
 }
 
