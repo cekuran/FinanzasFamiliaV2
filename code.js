@@ -9,8 +9,11 @@ const SCHEMA = {
   Recurrentes:   ['owner_email','id','plantilla','ultima_generacion','activa'],
   Presupuestos:  ['owner_email','id','anio','mes','categoria_id','importe_esperado'],
   Conciliaciones:['owner_email','id','fecha','cuenta_id','saldo_sistema','saldo_banco','diferencia','notas'],
-  TiposCambio:   ['owner_email','id','fecha','base','destino','ratio'],
-  Usuarios:      ['username','password_hash','salt','activo','fecha_creacion']
+  TiposCambio:   ['owner_email','id','fecha','base','destino','ratio']
+};
+
+const AUTH_SCHEMA = {
+  Usuarios: ['username','password_hash','salt','activo','fecha_creacion']
 };
 
 const HOJAS = Object.keys(SCHEMA);
@@ -47,6 +50,10 @@ const ENTORNOS = ['production', 'test'];
 const SHEET_ID_PROP_BY_ENV = {
   production: 'SHEET_ID_PRODUCTION',
   test: 'SHEET_ID_TEST'
+};
+const AUTH_SHEET_ID_PROP_BY_ENV = {
+  production: 'AUTH_SHEET_ID_PRODUCTION',
+  test: 'AUTH_SHEET_ID_TEST'
 };
 
 function tempUserKey_() {
@@ -101,9 +108,16 @@ function passwordHash_(password, salt) {
 }
 
 function asegurarUsuarios_() {
-  asegurarHoja('Usuarios');
-  const rows = leerHoja('Usuarios').filter(r => r.username);
+  asegurarAuthHojaUsuarios_();
+  const rows = leerUsuariosAuth_().filter(r => r.username);
   if (rows.length) return;
+
+  const legacy = leerUsuariosLegacyData_();
+  if (legacy.length) {
+    escribirUsuariosAuth_(legacy);
+    return;
+  }
+
   const defaultUser = 'admin';
   const defaultPass = PropertiesService.getScriptProperties().getProperty('DEFAULT_ADMIN_PASSWORD') || 'admin1234';
   const salt = Utilities.getUuid().replace(/-/g, '');
@@ -114,13 +128,13 @@ function asegurarUsuarios_() {
     activo: true,
     fecha_creacion: isoAhora_()
   };
-  escribirHoja('Usuarios', [nuevo]);
+  escribirUsuariosAuth_([nuevo]);
 }
 
 function buscarUsuario_(username) {
   const target = String(username || '').trim().toLowerCase();
   if (!target) return null;
-  return leerHoja('Usuarios').find(u => String(u.username || '').trim().toLowerCase() === target) || null;
+  return leerUsuariosAuth_().find(u => String(u.username || '').trim().toLowerCase() === target) || null;
 }
 
 function authStatus() {
@@ -156,7 +170,7 @@ function crearUsuarioAdmin(username, password) {
   if (pass.length < 8) throw new Error('La contraseña debe tener mínimo 8 caracteres');
   if (buscarUsuario_(user)) throw new Error('Ese usuario ya existe');
   const salt = Utilities.getUuid().replace(/-/g, '');
-  const rows = leerHoja('Usuarios');
+  const rows = leerUsuariosAuth_();
   rows.push({
     username: user,
     password_hash: passwordHash_(pass, salt),
@@ -164,7 +178,7 @@ function crearUsuarioAdmin(username, password) {
     activo: true,
     fecha_creacion: isoAhora_()
   });
-  escribirHoja('Usuarios', rows);
+  escribirUsuariosAuth_(rows);
   return { ok: true, user: user };
 }
 
@@ -172,7 +186,7 @@ function listarUsuariosAdmin() {
   const actor = requireUsuario_();
   if (actor !== 'admin') throw new Error('Solo admin puede listar usuarios');
   asegurarUsuarios_();
-  return leerHoja('Usuarios').map(u => ({
+  return leerUsuariosAuth_().map(u => ({
     username: u.username,
     activo: String(u.activo) !== 'false',
     fecha_creacion: u.fecha_creacion
@@ -191,6 +205,11 @@ function entornoActual_() {
 function propIdPorEntorno_(entorno) {
   const e = normalizarEntorno_(entorno);
   return SHEET_ID_PROP_BY_ENV[e];
+}
+
+function propAuthIdPorEntorno_(entorno) {
+  const e = normalizarEntorno_(entorno);
+  return AUTH_SHEET_ID_PROP_BY_ENV[e];
 }
 
 function obtenerSheetIdConfigurado_(entorno) {
@@ -219,6 +238,25 @@ function guardarSheetIdParaEntorno_(entorno, sheetId) {
   return id;
 }
 
+function obtenerAuthSheetIdConfigurado_(entorno) {
+  const props = PropertiesService.getScriptProperties();
+  const e = normalizarEntorno_(entorno);
+  return props.getProperty(propAuthIdPorEntorno_(e)) || '';
+}
+
+function guardarAuthSheetIdParaEntorno_(entorno, sheetId) {
+  const props = PropertiesService.getScriptProperties();
+  const e = normalizarEntorno_(entorno);
+  const propId = propAuthIdPorEntorno_(e);
+  const id = String(sheetId || '').trim();
+  if (!id) {
+    props.deleteProperty(propId);
+    return '';
+  }
+  props.setProperty(propId, id);
+  return id;
+}
+
 function ss_() {
   const props = PropertiesService.getScriptProperties();
   const env = entornoActual_();
@@ -236,12 +274,85 @@ function ss_() {
   return ss;
 }
 
+function authSs_() {
+  const env = entornoActual_();
+  const configuredId = obtenerAuthSheetIdConfigurado_(env);
+  if (configuredId) {
+    try { return SpreadsheetApp.openById(configuredId); }
+    catch (e) { /* id inválido, recrear */ }
+  }
+  const ss = SpreadsheetApp.create('Finanzas Familia Auth [' + env + '] · ' + tempUserKey_().slice(0, 10));
+  guardarAuthSheetIdParaEntorno_(env, ss.getId());
+  const porDefecto = ss.getSheets()[0];
+  if (porDefecto && ss.getSheets().length === 1) porDefecto.setName('_log');
+  return ss;
+}
+
+function asegurarAuthHojaUsuarios_() {
+  const ss = authSs_();
+  const nombre = 'Usuarios';
+  let h = ss.getSheetByName(nombre);
+  if (!h) {
+    h = ss.insertSheet(nombre);
+    h.getRange(1, 1, 1, AUTH_SCHEMA.Usuarios.length).setValues([AUTH_SCHEMA.Usuarios]).setFontWeight('bold');
+    h.setFrozenRows(1);
+  } else if (h.getLastRow() === 0) {
+    h.getRange(1, 1, 1, AUTH_SCHEMA.Usuarios.length).setValues([AUTH_SCHEMA.Usuarios]).setFontWeight('bold');
+    h.setFrozenRows(1);
+  }
+  return h;
+}
+
+function leerUsuariosAuth_() {
+  const h = asegurarAuthHojaUsuarios_();
+  const valores = h.getDataRange().getValues();
+  if (valores.length < 2) return [];
+  const cab = valores[0];
+  return valores.slice(1).map(fila => {
+    const o = {};
+    cab.forEach((k, i) => (o[k] = fila[i]));
+    return o;
+  });
+}
+
+function escribirUsuariosAuth_(filas) {
+  const h = asegurarAuthHojaUsuarios_();
+  const cab = AUTH_SCHEMA.Usuarios;
+  h.clearContents();
+  const matriz = [cab].concat(filas.map(f => cab.map(k => f[k] != null ? f[k] : '')));
+  if (matriz.length) h.getRange(1, 1, matriz.length, cab.length).setValues(matriz);
+  h.setFrozenRows(1);
+}
+
+function leerUsuariosLegacyData_() {
+  try {
+    const h = ss_().getSheetByName('Usuarios');
+    if (!h || h.getLastRow() < 2) return [];
+    const vals = h.getDataRange().getValues();
+    const cab = vals[0].map(c => String(c || '').trim());
+    const idx = {};
+    AUTH_SCHEMA.Usuarios.forEach(k => { idx[k] = cab.indexOf(k); });
+    if (idx.username < 0 || idx.password_hash < 0 || idx.salt < 0) return [];
+    return vals.slice(1).map(row => ({
+      username: row[idx.username],
+      password_hash: row[idx.password_hash],
+      salt: row[idx.salt],
+      activo: idx.activo >= 0 ? row[idx.activo] : true,
+      fecha_creacion: idx.fecha_creacion >= 0 ? row[idx.fecha_creacion] : isoAhora_()
+    })).filter(r => r.username && r.password_hash && r.salt);
+  } catch (e) {
+    return [];
+  }
+}
+
 function obtenerConfigSheets() {
   const env = entornoActual_();
   return {
     entorno: env,
     sheet_id_production: obtenerSheetIdConfigurado_('production'),
-    sheet_id_test: obtenerSheetIdConfigurado_('test')
+    sheet_id_test: obtenerSheetIdConfigurado_('test'),
+    auth_sheet_id_production: obtenerAuthSheetIdConfigurado_('production'),
+    auth_sheet_id_test: obtenerAuthSheetIdConfigurado_('test')
   };
 }
 
@@ -250,6 +361,7 @@ function setEntorno(entorno) {
   PropertiesService.getScriptProperties().setProperty(PROP_APP_ENV, env);
   // Garantiza que el entorno tenga sheet asignado.
   ss_();
+  authSs_();
   return obtenerConfigSheets();
 }
 
@@ -262,12 +374,30 @@ function setSheetIdEntorno(entorno, sheetId) {
   return obtenerConfigSheets();
 }
 
+function setAuthSheetIdEntorno(entorno, sheetId) {
+  const env = normalizarEntorno_(entorno);
+  const id = String(sheetId || '').trim();
+  if (!id) throw new Error('Debes indicar un sheetId válido.');
+  SpreadsheetApp.openById(id); // Validación temprana.
+  guardarAuthSheetIdParaEntorno_(env, id);
+  asegurarAuthHojaUsuarios_();
+  return obtenerConfigSheets();
+}
+
 function setSheetIdPruebas(sheetId) {
   return setSheetIdEntorno('test', sheetId);
 }
 
 function setSheetIdProduccion(sheetId) {
   return setSheetIdEntorno('production', sheetId);
+}
+
+function setAuthSheetIdPruebas(sheetId) {
+  return setAuthSheetIdEntorno('test', sheetId);
+}
+
+function setAuthSheetIdProduccion(sheetId) {
+  return setAuthSheetIdEntorno('production', sheetId);
 }
 
 function resetSheet(entorno) {
