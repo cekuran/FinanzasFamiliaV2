@@ -46,7 +46,6 @@ const SEMILLA = {
 const PROP_APP_ENV = 'APP_ENV';
 const PROP_SHEET_ID_LEGACY = 'SHEET_ID';
 const PROP_AUTH_PREFIX = 'AUTH_USER_';
-const PROP_OWNER_PREFIX = 'AUTH_OWNER_';
 const PROP_TOKEN_PREFIX = 'AUTH_TOKEN_';
 const ENTORNOS = ['production', 'test'];
 const SHEET_ID_PROP_BY_ENV = {
@@ -68,10 +67,6 @@ function tempUserKey_() {
 
 function authMapKey_() {
   return PROP_AUTH_PREFIX + tempUserKey_();
-}
-
-function ownerMapKey_(username) {
-  return PROP_OWNER_PREFIX + normalizarEntorno_(entornoActual_()) + '_' + String(username || '').trim().toLowerCase();
 }
 
 function tokenMapKey_(token) {
@@ -97,39 +92,6 @@ function requireUsuario_() {
   const u = usuarioAutenticado_();
   if (!u) throw new Error('No autenticado');
   return u;
-}
-
-function existeOwnerEnDatos_(owner) {
-  if (!owner) return false;
-  const cuentas = leerHoja('Cuentas');
-  if (cuentas.some(c => c.owner_email === owner)) return true;
-  const txs = leerHoja('Transacciones');
-  return txs.some(t => t.owner_email === owner);
-}
-
-function resolverOwnerParaAuth_(username) {
-  const user = String(username || '').trim();
-  if (!user) return '';
-  const props = PropertiesService.getScriptProperties();
-  const key = ownerMapKey_(user);
-  const guardado = props.getProperty(key);
-  if (guardado) return guardado;
-
-  // Compatibilidad: si hay datos legacy por email Google, vincularlos al primer
-  // usuario administrativo para no "perder" transacciones al activar login.
-  const sessionEmail = Session.getActiveUser().getEmail();
-  if (user.toLowerCase() === 'admin' && sessionEmail && existeOwnerEnDatos_(sessionEmail)) {
-    props.setProperty(key, sessionEmail);
-    return sessionEmail;
-  }
-
-  props.setProperty(key, user);
-  return user;
-}
-
-function ownerActual_() {
-  const authUser = requireUsuario_();
-  return resolverOwnerParaAuth_(authUser);
 }
 
 function bytesHex_(bytes) {
@@ -203,7 +165,6 @@ function authStatus(token) {
   const tokenUser = validarTokenSesion_(token);
   if (tokenUser) {
     setUsuarioAutenticado_(tokenUser);
-    resolverOwnerParaAuth_(tokenUser);
     return { authenticated: true, user: tokenUser };
   }
   const user = usuarioAutenticado_();
@@ -220,7 +181,6 @@ function loginUsuario(username, password) {
   const hash = passwordHash_(pass, String(found.salt || ''));
   if (hash !== String(found.password_hash || '')) throw new Error('Credenciales inválidas');
   setUsuarioAutenticado_(found.username);
-  resolverOwnerParaAuth_(found.username);
   const token = crearTokenSesion_(found.username);
   return { ok: true, user: found.username, token: token };
 }
@@ -229,7 +189,6 @@ function setAuthToken(token) {
   const username = validarTokenSesion_(token);
   if (!username) throw new Error('No autenticado');
   setUsuarioAutenticado_(username);
-  resolverOwnerParaAuth_(username);
   return { ok: true, user: username };
 }
 
@@ -492,7 +451,7 @@ function resetSheet(entorno) {
 }
 
 function email_() {
-  return ownerActual_();
+  return requireUsuario_();
 }
 function uid_(prefixo) { return (prefixo || 'id') + '_' + Utilities.getUuid().slice(0, 8); }
 function isoHoy_() { return new Date().toISOString().slice(0, 10); }
