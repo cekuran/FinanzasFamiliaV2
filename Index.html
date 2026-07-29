@@ -2544,6 +2544,8 @@ $('#authForm').addEventListener('submit', async (e) => {
   const pass = $('#authPass').value || '';
   $('#authSubmit').disabled = true;
   $('#authSubmit').textContent = 'Entrando...';
+  $('#authUser').disabled = true;
+  $('#authPass').disabled = true;
   showAuthError('');
   try {
     const r = await call('loginUsuario', user, pass);
@@ -2559,6 +2561,8 @@ $('#authForm').addEventListener('submit', async (e) => {
   } finally {
     $('#authSubmit').disabled = false;
     $('#authSubmit').textContent = 'Entrar';
+    $('#authUser').disabled = false;
+    $('#authPass').disabled = false;
   }
 });
 
@@ -2633,6 +2637,13 @@ $('#adminUserForm').addEventListener('submit', async (e) => {
     toast('Completa usuario y contraseña');
     return;
   }
+  const btn = $('#adminUserCreate');
+  const btnLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Creando...';
+  $('#adminNewUser').disabled = true;
+  $('#adminNewPass').disabled = true;
+  $('#adminNewRol').disabled = true;
   try {
     await call('crearUsuarioAdmin', user, pass, rol);
     $('#adminNewUser').value = '';
@@ -2642,6 +2653,12 @@ $('#adminUserForm').addEventListener('submit', async (e) => {
     cargarUsuariosAdminUI();
   } catch (err) {
     toast('Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = btnLabel;
+    $('#adminNewUser').disabled = false;
+    $('#adminNewPass').disabled = false;
+    $('#adminNewRol').disabled = false;
   }
 });
 
