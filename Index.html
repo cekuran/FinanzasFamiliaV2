@@ -412,7 +412,7 @@
 </style>
 </head>
 <body>
-<section class="auth-screen" id="authScreen" style="display:none;">
+<section class="auth-screen" id="authScreen">
   <div class="auth-card">
     <h2 class="auth-title">Acceso</h2>
     <p class="auth-sub">Inicia sesión para entrar a tu espacio financiero.</p>
@@ -432,7 +432,7 @@
   </div>
 </section>
 
-<div class="app">
+<div class="app" style="display:none;">
   <!-- Sidebar (desktop) -->
   <aside class="sidebar">
     <div class="brand" style="padding: 8px 12px 16px;">
@@ -2467,12 +2467,11 @@ window.addEventListener('hashchange', () => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY) || '';
     const status = await call('authStatus', token);
     if (!status || !status.authenticated) {
-      if (localStorage.getItem(AUTH_IS_LOGGED_KEY)) {
-        showAuthError('Tu sesión expiró. Inicia sesión de nuevo.');
-      }
+      const sesionExpirada = !!localStorage.getItem(AUTH_IS_LOGGED_KEY);
       localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(AUTH_IS_LOGGED_KEY);
       mostrarLogin();
+      if (sesionExpirada) showAuthError('Tu sesión expiró. Inicia sesión de nuevo.');
       return;
     }
     localStorage.setItem(AUTH_LAST_USER_KEY, status.user || '');
