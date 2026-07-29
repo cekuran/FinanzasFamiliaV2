@@ -386,10 +386,52 @@
   .loading-block .spinner { width: 28px; height: 28px; border-width: 2px; }
   .loading-table-row { padding: 0 !important; }
   .loading-table-row .loading-block { min-height: 160px; }
+  .auth-screen {
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: var(--s-6);
+    background:
+      radial-gradient(900px 460px at 20% -10%, color-mix(in srgb, var(--primary-container) 36%, transparent), transparent 60%),
+      radial-gradient(900px 460px at 100% 0%, color-mix(in srgb, var(--tertiary-container) 26%, transparent), transparent 62%),
+      var(--surface);
+  }
+  .auth-card {
+    width: min(440px, 100%);
+    background: var(--surface-container-lowest);
+    border: 1px solid var(--surface-container);
+    border-radius: var(--r-xl);
+    box-shadow: var(--shadow-pop);
+    padding: var(--s-6);
+  }
+  .auth-title { margin: 0 0 var(--s-2); font-size: 28px; line-height: 1.2; }
+  .auth-sub { margin: 0 0 var(--s-4); color: var(--on-surface-variant); }
+  .auth-error { display: none; margin-bottom: var(--s-3); color: var(--error); font-size: 13px; }
+  .auth-meta { margin-top: var(--s-3); color: var(--on-surface-variant); font-size: 12px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
+<section class="auth-screen" id="authScreen" style="display:none;">
+  <div class="auth-card">
+    <h2 class="auth-title">Acceso</h2>
+    <p class="auth-sub">Inicia sesión para entrar a tu espacio financiero.</p>
+    <div class="auth-error" id="authError"></div>
+    <form id="authForm" style="display: flex; flex-direction: column; gap: var(--s-3);">
+      <div class="field">
+        <label>Usuario</label>
+        <input class="input" id="authUser" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label>Contraseña</label>
+        <input class="input" id="authPass" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary" id="authSubmit" type="submit" style="width:100%;">Entrar</button>
+    </form>
+    <div class="auth-meta">Si es tu primera vez, usa: usuario <strong>admin</strong> y contraseña <strong>admin1234</strong> (cámbiala después).</div>
+  </div>
+</section>
+
 <div class="app">
   <!-- Sidebar (desktop) -->
   <aside class="sidebar">
@@ -697,6 +739,17 @@
             <button class="btn btn-outline btn-sm env-btn" id="adminEnvApply" type="button">Cambiar</button>
           </div>
           <div class="body-sm" id="adminEnvInfo" style="color: var(--on-surface-variant);">Entorno activo: Producción</div>
+          <button class="btn btn-secondary btn-sm" id="adminLogout" type="button" style="margin-top: var(--s-3);">Cerrar sesión</button>
+        </div>
+        <div class="card col-6">
+          <div class="card-h"><h2>Usuarios</h2></div>
+          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Solo admin puede crear usuarios nuevos.</div>
+          <form id="adminUserForm" style="display: grid; gap: var(--s-2); margin-bottom: var(--s-3);">
+            <input class="input" id="adminNewUser" placeholder="Usuario (ej. maria)" autocomplete="off">
+            <input class="input" id="adminNewPass" type="password" placeholder="Contraseña (mínimo 8)" autocomplete="new-password">
+            <button class="btn btn-primary btn-sm" id="adminUserCreate" type="submit">Crear usuario</button>
+          </form>
+          <div id="adminUsersList" class="body-sm" style="color: var(--on-surface-variant);"></div>
         </div>
       </div>
     </section>
@@ -1061,6 +1114,70 @@ async function call(fn, ...args) {
   });
 }
 
+const AUTH_LAST_USER_KEY = 'ff_last_user';
+const AUTH_IS_LOGGED_KEY = 'ff_is_logged';
+
+function showAuthError(msg) {
+  const el = $('#authError');
+  if (!msg) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.style.display = 'block';
+  el.textContent = msg;
+}
+
+function mostrarLogin() {
+  $('#authScreen').style.display = 'grid';
+  $('.app').style.display = 'none';
+  $('#authSubmit').disabled = false;
+  $('#authSubmit').textContent = 'Entrar';
+  const lastUser = localStorage.getItem(AUTH_LAST_USER_KEY) || '';
+  $('#authUser').value = lastUser;
+  $('#authPass').value = '';
+  showAuthError('');
+  setTimeout(() => ($('#authUser').value ? $('#authPass') : $('#authUser')).focus(), 0);
+}
+
+function mostrarApp() {
+  $('#authScreen').style.display = 'none';
+  $('.app').style.display = '';
+  showAuthError('');
+}
+
+async function cargarUsuariosAdminUI() {
+  const listEl = $('#adminUsersList');
+  if (!listEl) return;
+  try {
+    const users = await call('listarUsuariosAdmin');
+    if (!Array.isArray(users) || !users.length) {
+      listEl.textContent = 'Sin usuarios.';
+      return;
+    }
+    listEl.innerHTML = users.map(u => {
+      const estado = u.activo ? 'activo' : 'inactivo';
+      return '<div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-top:1px solid var(--surface-container);">'
+        + '<span>' + escape(u.username) + '</span><span style="color:var(--on-surface-variant);">' + estado + '</span></div>';
+    }).join('');
+  } catch (e) {
+    listEl.textContent = 'No disponible para este usuario.';
+  }
+}
+
+async function iniciarAppAutenticada() {
+  Estado.bootstrap = normalizarBootstrap(await call('bootstrapBase'));
+  const email = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.email) || '?';
+  actualizarEntornoUI();
+  $('#avatar').textContent = (email[0] || 'U').toUpperCase();
+  $('#avatarM').textContent = (email[0] || 'U').toUpperCase();
+  $('#userEmail').textContent = email;
+  poblarFiltros();
+  go('dashboard');
+  sincronizarTransacciones({ render: true, toastOnError: true });
+  mostrarApp();
+}
+
 function loadingBlockHtml(msg) {
   return '<div class="loading-block"><div class="spinner" aria-hidden="true"></div><div class="body-sm">'
     + escape(msg || 'Cargando...') + '</div></div>';
@@ -1166,6 +1283,13 @@ async function cambiarEntornoDesdeUI() {
 
 function renderAdmin() {
   actualizarEntornoUI();
+  const isAdmin = ((Estado.bootstrap.sesion && Estado.bootstrap.sesion.email) || '') === 'admin';
+  $('#adminUserForm').style.display = isAdmin ? 'grid' : 'none';
+  if (!isAdmin) {
+    $('#adminUsersList').textContent = 'Solo admin puede gestionar usuarios.';
+    return;
+  }
+  cargarUsuariosAdminUI();
 }
 
 let _txSyncToken = 0;
@@ -2256,6 +2380,52 @@ $('#dashConciliar').addEventListener('click', () => go('conciliar'));
 $('#conOk').addEventListener('click', doConciliar);
 $('#adminEnvApply').addEventListener('click', cambiarEntornoDesdeUI);
 
+$('#authForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const user = ($('#authUser').value || '').trim();
+  const pass = $('#authPass').value || '';
+  $('#authSubmit').disabled = true;
+  $('#authSubmit').textContent = 'Entrando...';
+  showAuthError('');
+  try {
+    const r = await call('loginUsuario', user, pass);
+    localStorage.setItem(AUTH_LAST_USER_KEY, r.user || user);
+    localStorage.setItem(AUTH_IS_LOGGED_KEY, '1');
+    await iniciarAppAutenticada();
+  } catch (err) {
+    localStorage.removeItem(AUTH_IS_LOGGED_KEY);
+    showAuthError(err.message || 'No se pudo iniciar sesión');
+  } finally {
+    $('#authSubmit').disabled = false;
+    $('#authSubmit').textContent = 'Entrar';
+  }
+});
+
+$('#adminLogout').addEventListener('click', async () => {
+  try { await call('logoutUsuario'); } catch (_) { /* ignore */ }
+  localStorage.removeItem(AUTH_IS_LOGGED_KEY);
+  mostrarLogin();
+});
+
+$('#adminUserForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const user = ($('#adminNewUser').value || '').trim();
+  const pass = $('#adminNewPass').value || '';
+  if (!user || !pass) {
+    toast('Completa usuario y contraseña');
+    return;
+  }
+  try {
+    await call('crearUsuarioAdmin', user, pass);
+    $('#adminNewUser').value = '';
+    $('#adminNewPass').value = '';
+    toast('Usuario creado');
+    cargarUsuariosAdminUI();
+  } catch (err) {
+    toast('Error: ' + err.message);
+  }
+});
+
 wireIconGrid($('#catIconGrid'), CAT_ICONS);
 wireIconGrid($('#ctaIconGrid'), CTA_ICONS);
 
@@ -2266,15 +2436,17 @@ window.addEventListener('hashchange', () => {
 
 (async function init() {
   try {
-    Estado.bootstrap = normalizarBootstrap(await call('bootstrapBase'));
-    const email = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.email) || '?';
-    actualizarEntornoUI();
-    $('#avatar').textContent = (email[0] || 'U').toUpperCase();
-    $('#avatarM').textContent = (email[0] || 'U').toUpperCase();
-    $('#userEmail').textContent = email;
-    poblarFiltros();
-    go('dashboard');
-    sincronizarTransacciones({ render: true, toastOnError: true });
+    const status = await call('authStatus');
+    if (!status || !status.authenticated) {
+      if (localStorage.getItem(AUTH_IS_LOGGED_KEY)) {
+        showAuthError('Tu sesión expiró. Inicia sesión de nuevo.');
+      }
+      mostrarLogin();
+      return;
+    }
+    localStorage.setItem(AUTH_LAST_USER_KEY, status.user || '');
+    localStorage.setItem(AUTH_IS_LOGGED_KEY, '1');
+    await iniciarAppAutenticada();
   } catch (e) {
     document.body.innerHTML = '<div class="empty"><h2>Error de carga</h2><p>' + escape(e.message) + '</p></div>';
   }

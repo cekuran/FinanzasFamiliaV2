@@ -9,7 +9,8 @@ const SCHEMA = {
   Recurrentes:   ['owner_email','id','plantilla','ultima_generacion','activa'],
   Presupuestos:  ['owner_email','id','anio','mes','categoria_id','importe_esperado'],
   Conciliaciones:['owner_email','id','fecha','cuenta_id','saldo_sistema','saldo_banco','diferencia','notas'],
-  TiposCambio:   ['owner_email','id','fecha','base','destino','ratio']
+  TiposCambio:   ['owner_email','id','fecha','base','destino','ratio'],
+  Usuarios:      ['username','password_hash','salt','activo','fecha_creacion']
 };
 
 const HOJAS = Object.keys(SCHEMA);
@@ -41,11 +42,142 @@ const SEMILLA = {
 // ───────── Helpers de sesión y ss ─────────
 const PROP_APP_ENV = 'APP_ENV';
 const PROP_SHEET_ID_LEGACY = 'SHEET_ID';
+const PROP_AUTH_PREFIX = 'AUTH_USER_';
 const ENTORNOS = ['production', 'test'];
 const SHEET_ID_PROP_BY_ENV = {
   production: 'SHEET_ID_PRODUCTION',
   test: 'SHEET_ID_TEST'
 };
+
+function tempUserKey_() {
+  const tk = Session.getTemporaryActiveUserKey();
+  if (tk) return tk;
+  const em = Session.getActiveUser().getEmail();
+  if (em) return em;
+  return 'anon';
+}
+
+function authMapKey_() {
+  return PROP_AUTH_PREFIX + tempUserKey_();
+}
+
+function usuarioAutenticado_() {
+  const u = PropertiesService.getScriptProperties().getProperty(authMapKey_());
+  return u ? String(u).trim() : '';
+}
+
+function setUsuarioAutenticado_(username) {
+  const u = String(username || '').trim();
+  if (!u) throw new Error('Usuario inválido');
+  PropertiesService.getScriptProperties().setProperty(authMapKey_(), u);
+}
+
+function clearUsuarioAutenticado_() {
+  PropertiesService.getScriptProperties().deleteProperty(authMapKey_());
+}
+
+function requireUsuario_() {
+  const u = usuarioAutenticado_();
+  if (!u) throw new Error('No autenticado');
+  return u;
+}
+
+function bytesHex_(bytes) {
+  return bytes.map(function (b) {
+    const h = (b < 0 ? b + 256 : b).toString(16);
+    return h.length === 1 ? '0' + h : h;
+  }).join('');
+}
+
+function sha256Hex_(text) {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset.UTF_8);
+  return bytesHex_(digest);
+}
+
+function passwordHash_(password, salt) {
+  let h = salt + '|' + password;
+  for (let i = 0; i < 12000; i++) h = sha256Hex_(h);
+  return h;
+}
+
+function asegurarUsuarios_() {
+  asegurarHoja('Usuarios');
+  const rows = leerHoja('Usuarios').filter(r => r.username);
+  if (rows.length) return;
+  const defaultUser = 'admin';
+  const defaultPass = PropertiesService.getScriptProperties().getProperty('DEFAULT_ADMIN_PASSWORD') || 'admin1234';
+  const salt = Utilities.getUuid().replace(/-/g, '');
+  const nuevo = {
+    username: defaultUser,
+    password_hash: passwordHash_(defaultPass, salt),
+    salt: salt,
+    activo: true,
+    fecha_creacion: isoAhora_()
+  };
+  escribirHoja('Usuarios', [nuevo]);
+}
+
+function buscarUsuario_(username) {
+  const target = String(username || '').trim().toLowerCase();
+  if (!target) return null;
+  return leerHoja('Usuarios').find(u => String(u.username || '').trim().toLowerCase() === target) || null;
+}
+
+function authStatus() {
+  const user = usuarioAutenticado_();
+  return { authenticated: !!user, user: user || '' };
+}
+
+function loginUsuario(username, password) {
+  asegurarUsuarios_();
+  const user = String(username || '').trim();
+  const pass = String(password || '');
+  if (!user || !pass) throw new Error('Debes indicar usuario y contraseña');
+  const found = buscarUsuario_(user);
+  if (!found || String(found.activo) === 'false') throw new Error('Credenciales inválidas');
+  const hash = passwordHash_(pass, String(found.salt || ''));
+  if (hash !== String(found.password_hash || '')) throw new Error('Credenciales inválidas');
+  setUsuarioAutenticado_(found.username);
+  return { ok: true, user: found.username };
+}
+
+function logoutUsuario() {
+  clearUsuarioAutenticado_();
+  return { ok: true };
+}
+
+function crearUsuarioAdmin(username, password) {
+  const actor = requireUsuario_();
+  if (actor !== 'admin') throw new Error('Solo admin puede crear usuarios');
+  asegurarUsuarios_();
+  const user = String(username || '').trim();
+  const pass = String(password || '');
+  if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(user)) throw new Error('Usuario inválido (3-40, letras, números, _.-)');
+  if (pass.length < 8) throw new Error('La contraseña debe tener mínimo 8 caracteres');
+  if (buscarUsuario_(user)) throw new Error('Ese usuario ya existe');
+  const salt = Utilities.getUuid().replace(/-/g, '');
+  const rows = leerHoja('Usuarios');
+  rows.push({
+    username: user,
+    password_hash: passwordHash_(pass, salt),
+    salt: salt,
+    activo: true,
+    fecha_creacion: isoAhora_()
+  });
+  escribirHoja('Usuarios', rows);
+  return { ok: true, user: user };
+}
+
+function listarUsuariosAdmin() {
+  const actor = requireUsuario_();
+  if (actor !== 'admin') throw new Error('Solo admin puede listar usuarios');
+  asegurarUsuarios_();
+  return leerHoja('Usuarios').map(u => ({
+    username: u.username,
+    activo: String(u.activo) !== 'false',
+    fecha_creacion: u.fecha_creacion
+  }));
+}
 
 function normalizarEntorno_(entorno) {
   const e = String(entorno || '').toLowerCase();
@@ -96,7 +228,7 @@ function ss_() {
     catch (e) { /* id inválido, recrear */ }
   }
   // Primera vez (o id corrupto): crear spreadsheet propio por entorno.
-  const ss = SpreadsheetApp.create('Finanzas Familia [' + env + '] · ' + email_());
+  const ss = SpreadsheetApp.create('Finanzas Familia [' + env + '] · ' + tempUserKey_().slice(0, 10));
   guardarSheetIdParaEntorno_(env, ss.getId());
   // Mover la hoja "Hoja 1" por defecto al final, queda fuera de la vista
   const porDefecto = ss.getSheets()[0];
@@ -151,8 +283,7 @@ function resetSheet(entorno) {
 }
 
 function email_() {
-  const e = Session.getActiveUser().getEmail();
-  return e || ('anon-' + Session.getTemporaryActiveUserKeys().join('')) || 'anon';
+  return requireUsuario_();
 }
 function uid_(prefixo) { return (prefixo || 'id') + '_' + Utilities.getUuid().slice(0, 8); }
 function isoHoy_() { return new Date().toISOString().slice(0, 10); }
@@ -261,11 +392,8 @@ function sembrar(owner) {
 
 // ───────── Bootstrap público ─────────
 function doGet() {
-  const owner = email_();
   migrarEsquema();
-  sembrar(owner);
-  normalizarSubcuentasHuerfanas_(owner);
-  generarRecurrentesPendientes_(owner, new Date());
+  asegurarUsuarios_();
   return HtmlService.createTemplateFromFile('Index').evaluate()
     .setTitle('Finanzas Familia')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
@@ -281,8 +409,9 @@ function bootstrap() {
 // Bootstrap ligero para carga progresiva en el cliente.
 // Devuelve todo menos transacciones para que la UI pinte antes.
 function bootstrapBase() {
-  const owner = email_();
+  const owner = requireUsuario_();
   migrarEsquema();
+  asegurarUsuarios_();
   sembrar(owner);
   normalizarSubcuentasHuerfanas_(owner);
   generarRecurrentesPendientes_(owner, new Date());
