@@ -225,6 +225,33 @@ function listarUsuariosAdmin() {
   }));
 }
 
+function cambiarMiContrasena(passwordActual, passwordNueva) {
+  const actor = requireUsuario_();
+  asegurarUsuarios_();
+  const actual = String(passwordActual || '');
+  const nueva = String(passwordNueva || '');
+  if (!actual || !nueva) throw new Error('Debes indicar la contraseña actual y la nueva');
+  if (nueva.length < 8) throw new Error('La nueva contraseña debe tener mínimo 8 caracteres');
+
+  const rows = leerUsuariosAuth_();
+  const idx = rows.findIndex(u => String(u.username || '').trim().toLowerCase() === String(actor).toLowerCase());
+  if (idx < 0) throw new Error('Usuario no encontrado');
+
+  const user = rows[idx];
+  if (String(user.activo) === 'false') throw new Error('Usuario inactivo');
+  const actualHash = passwordHash_(actual, String(user.salt || ''));
+  if (actualHash !== String(user.password_hash || '')) throw new Error('La contraseña actual no es correcta');
+  if (passwordHash_(nueva, String(user.salt || '')) === String(user.password_hash || '')) {
+    throw new Error('La nueva contraseña debe ser distinta de la actual');
+  }
+
+  const saltNuevo = Utilities.getUuid().replace(/-/g, '');
+  rows[idx].salt = saltNuevo;
+  rows[idx].password_hash = passwordHash_(nueva, saltNuevo);
+  escribirUsuariosAuth_(rows);
+  return { ok: true, user: actor };
+}
+
 function normalizarEntorno_(entorno) {
   const e = String(entorno || '').toLowerCase();
   return ENTORNOS.includes(e) ? e : 'production';
