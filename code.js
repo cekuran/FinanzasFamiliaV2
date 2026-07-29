@@ -47,6 +47,7 @@ const PROP_APP_ENV = 'APP_ENV';
 const PROP_SHEET_ID_LEGACY = 'SHEET_ID';
 const PROP_AUTH_PREFIX = 'AUTH_USER_';
 const PROP_OWNER_PREFIX = 'AUTH_OWNER_';
+const PROP_TOKEN_PREFIX = 'AUTH_TOKEN_';
 const ENTORNOS = ['production', 'test'];
 const SHEET_ID_PROP_BY_ENV = {
   production: 'SHEET_ID_PRODUCTION',
@@ -71,6 +72,10 @@ function authMapKey_() {
 
 function ownerMapKey_(username) {
   return PROP_OWNER_PREFIX + normalizarEntorno_(entornoActual_()) + '_' + String(username || '').trim().toLowerCase();
+}
+
+function tokenMapKey_(token) {
+  return PROP_TOKEN_PREFIX + normalizarEntorno_(entornoActual_()) + '_' + String(token || '').trim();
 }
 
 function usuarioAutenticado_() {
@@ -145,6 +150,25 @@ function passwordHash_(password, salt) {
   return h;
 }
 
+function crearTokenSesion_(username) {
+  const token = Utilities.getUuid();
+  PropertiesService.getScriptProperties().setProperty(tokenMapKey_(token), String(username || '').trim());
+  return token;
+}
+
+function validarTokenSesion_(token) {
+  const t = String(token || '').trim();
+  if (!t) return '';
+  const username = PropertiesService.getScriptProperties().getProperty(tokenMapKey_(t));
+  return username ? String(username).trim() : '';
+}
+
+function invalidarTokenSesion_(token) {
+  const t = String(token || '').trim();
+  if (!t) return;
+  PropertiesService.getScriptProperties().deleteProperty(tokenMapKey_(t));
+}
+
 function asegurarUsuarios_() {
   asegurarAuthHojaUsuarios_();
   const rows = leerUsuariosAuth_().filter(r => r.username);
@@ -157,7 +181,7 @@ function asegurarUsuarios_() {
   }
 
   const defaultUser = 'admin';
-  const defaultPass = PropertiesService.getScriptProperties().getProperty('DEFAULT_ADMIN_PASSWORD') || 'admin';
+  const defaultPass = PropertiesService.getScriptProperties().getProperty('DEFAULT_ADMIN_PASSWORD') || 'admin1234';
   const salt = Utilities.getUuid().replace(/-/g, '');
   const nuevo = {
     username: defaultUser,
@@ -175,7 +199,13 @@ function buscarUsuario_(username) {
   return leerUsuariosAuth_().find(u => String(u.username || '').trim().toLowerCase() === target) || null;
 }
 
-function authStatus() {
+function authStatus(token) {
+  const tokenUser = validarTokenSesion_(token);
+  if (tokenUser) {
+    setUsuarioAutenticado_(tokenUser);
+    resolverOwnerParaAuth_(tokenUser);
+    return { authenticated: true, user: tokenUser };
+  }
   const user = usuarioAutenticado_();
   return { authenticated: !!user, user: user || '' };
 }
@@ -191,10 +221,20 @@ function loginUsuario(username, password) {
   if (hash !== String(found.password_hash || '')) throw new Error('Credenciales inválidas');
   setUsuarioAutenticado_(found.username);
   resolverOwnerParaAuth_(found.username);
-  return { ok: true, user: found.username };
+  const token = crearTokenSesion_(found.username);
+  return { ok: true, user: found.username, token: token };
 }
 
-function logoutUsuario() {
+function setAuthToken(token) {
+  const username = validarTokenSesion_(token);
+  if (!username) throw new Error('No autenticado');
+  setUsuarioAutenticado_(username);
+  resolverOwnerParaAuth_(username);
+  return { ok: true, user: username };
+}
+
+function logoutUsuario(token) {
+  invalidarTokenSesion_(token);
   clearUsuarioAutenticado_();
   return { ok: true };
 }

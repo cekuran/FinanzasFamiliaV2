@@ -1120,7 +1120,7 @@ function toast(msg) {
   toast._t = setTimeout(() => t.classList.remove('is-show'), 2400);
 }
 
-async function call(fn, ...args) {
+function rawCall(fn, ...args) {
   return new Promise((resolve, reject) => {
     google.script.run
       .withSuccessHandler(v => resolve(v))
@@ -1128,8 +1128,17 @@ async function call(fn, ...args) {
   });
 }
 
+async function call(fn, ...args) {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  if (token && fn !== 'loginUsuario' && fn !== 'authStatus' && fn !== 'logoutUsuario' && fn !== 'setAuthToken') {
+    await rawCall('setAuthToken', token);
+  }
+  return rawCall(fn, ...args);
+}
+
 const AUTH_LAST_USER_KEY = 'ff_last_user';
 const AUTH_IS_LOGGED_KEY = 'ff_is_logged';
+const AUTH_TOKEN_KEY = 'ff_auth_token';
 
 function showAuthError(msg) {
   const el = $('#authError');
@@ -2404,9 +2413,12 @@ $('#authForm').addEventListener('submit', async (e) => {
   try {
     const r = await call('loginUsuario', user, pass);
     localStorage.setItem(AUTH_LAST_USER_KEY, r.user || user);
+    if (r.token) localStorage.setItem(AUTH_TOKEN_KEY, r.token);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.setItem(AUTH_IS_LOGGED_KEY, '1');
     await iniciarAppAutenticada();
   } catch (err) {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
     localStorage.removeItem(AUTH_IS_LOGGED_KEY);
     showAuthError(err.message || 'No se pudo iniciar sesión');
   } finally {
@@ -2416,7 +2428,9 @@ $('#authForm').addEventListener('submit', async (e) => {
 });
 
 $('#adminLogout').addEventListener('click', async () => {
-  try { await call('logoutUsuario'); } catch (_) { /* ignore */ }
+  const token = localStorage.getItem(AUTH_TOKEN_KEY) || '';
+  try { await call('logoutUsuario', token); } catch (_) { /* ignore */ }
+  localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_IS_LOGGED_KEY);
   mostrarLogin();
 });
@@ -2450,11 +2464,14 @@ window.addEventListener('hashchange', () => {
 
 (async function init() {
   try {
-    const status = await call('authStatus');
+    const token = localStorage.getItem(AUTH_TOKEN_KEY) || '';
+    const status = await call('authStatus', token);
     if (!status || !status.authenticated) {
       if (localStorage.getItem(AUTH_IS_LOGGED_KEY)) {
         showAuthError('Tu sesión expiró. Inicia sesión de nuevo.');
       }
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(AUTH_IS_LOGGED_KEY);
       mostrarLogin();
       return;
     }
