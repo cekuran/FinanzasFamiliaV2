@@ -13,8 +13,9 @@ const SCHEMA = {
 };
 
 const AUTH_SCHEMA = {
-  Usuarios: ['username','password_hash','salt','activo','fecha_creacion']
+  Usuarios: ['username','password_hash','salt','rol','activo','fecha_creacion']
 };
+const ROLES = { ADMIN: 'admin', BASICO: 'basico' };
 
 const HOJAS = Object.keys(SCHEMA);
 
@@ -77,6 +78,17 @@ function requireUsuario_() {
   const u = currentUser_();
   if (!u) throw new Error('No autenticado');
   return u;
+}
+
+function currentRol_() {
+  const username = currentUser_();
+  if (!username) return '';
+  const u = buscarUsuario_(username);
+  return u ? String(u.rol || ROLES.BASICO) : '';
+}
+
+function requireAdmin_() {
+  if (currentRol_() !== ROLES.ADMIN) throw new Error('Solo admin puede realizar esta acción');
 }
 
 // Despacho autenticado: valida el token contra ScriptProperties, lo cachea
@@ -147,6 +159,7 @@ function asegurarUsuarios_() {
     username: defaultUser,
     password_hash: passwordHash_(defaultPass, salt),
     salt: salt,
+    rol: ROLES.ADMIN,
     activo: true,
     fecha_creacion: isoAhora_()
   };
@@ -163,7 +176,8 @@ function authStatus(token) {
   const tokenUser = validarTokenSesion_(token);
   if (tokenUser) _currentToken = String(token || '').trim();
   else _currentToken = '';
-  return { authenticated: !!tokenUser, user: tokenUser || '' };
+  const rol = tokenUser ? (buscarUsuario_(tokenUser) || {}).rol || ROLES.BASICO : '';
+  return { authenticated: !!tokenUser, user: tokenUser || '', rol: rol || '' };
 }
 
 function loginUsuario(username, password) {
@@ -176,7 +190,7 @@ function loginUsuario(username, password) {
   const hash = passwordHash_(pass, String(found.salt || ''));
   if (hash !== String(found.password_hash || '')) throw new Error('Credenciales inválidas');
   const token = crearTokenSesion_(found.username);
-  return { ok: true, user: found.username, token: token };
+  return { ok: true, user: found.username, rol: String(found.rol || ROLES.BASICO), token: token };
 }
 
 function setAuthToken(token) {
@@ -192,12 +206,13 @@ function logoutUsuario(token) {
   return { ok: true };
 }
 
-function crearUsuarioAdmin(username, password) {
-  const actor = requireUsuario_();
-  if (actor !== 'admin') throw new Error('Solo admin puede crear usuarios');
+function crearUsuarioAdmin(username, password, rol) {
+  requireAdmin_();
   asegurarUsuarios_();
   const user = String(username || '').trim();
   const pass = String(password || '');
+  const rolFinal = String(rol || ROLES.BASICO).trim().toLowerCase();
+  if (!Object.values(ROLES).includes(rolFinal)) throw new Error('Rol inválido');
   if (!/^[a-zA-Z0-9_.-]{3,40}$/.test(user)) throw new Error('Usuario inválido (3-40, letras, números, _.-)');
   if (pass.length < 8) throw new Error('La contraseña debe tener mínimo 8 caracteres');
   if (buscarUsuario_(user)) throw new Error('Ese usuario ya existe');
@@ -207,19 +222,20 @@ function crearUsuarioAdmin(username, password) {
     username: user,
     password_hash: passwordHash_(pass, salt),
     salt: salt,
+    rol: rolFinal,
     activo: true,
     fecha_creacion: isoAhora_()
   });
   escribirUsuariosAuth_(rows);
-  return { ok: true, user: user };
+  return { ok: true, user: user, rol: rolFinal };
 }
 
 function listarUsuariosAdmin() {
-  const actor = requireUsuario_();
-  if (actor !== 'admin') throw new Error('Solo admin puede listar usuarios');
+  requireAdmin_();
   asegurarUsuarios_();
   return leerUsuariosAuth_().map(u => ({
     username: u.username,
+    rol: String(u.rol || ROLES.BASICO),
     activo: String(u.activo) !== 'false',
     fecha_creacion: u.fecha_creacion
   }));
@@ -358,6 +374,10 @@ function asegurarAuthHojaUsuarios_() {
   } else if (h.getLastRow() === 0) {
     h.getRange(1, 1, 1, AUTH_SCHEMA.Usuarios.length).setValues([AUTH_SCHEMA.Usuarios]).setFontWeight('bold');
     h.setFrozenRows(1);
+  } else {
+    const cab = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+    if (!cab.includes('rol')) h.getRange(1, h.getLastColumn() + 1).setValue('rol');
+    h.setFrozenRows(1);
   }
   return h;
 }
@@ -370,15 +390,27 @@ function leerUsuariosAuth_() {
   return valores.slice(1).map(fila => {
     const o = {};
     cab.forEach((k, i) => (o[k] = fila[i]));
-    return o;
+    return normalizarUsuarioAuth_(o);
   });
+}
+
+function normalizarUsuarioAuth_(u) {
+  if (!u) return u;
+  const rol = String(u.rol || '').trim();
+  // Migración: filas previas a la columna 'rol' (o vacías) — el primer admin
+  // conserva su rol; el resto cae a 'basico'.
+  u.rol = rol || (String(u.username || '').trim().toLowerCase() === 'admin' ? ROLES.ADMIN : ROLES.BASICO);
+  return u;
 }
 
 function escribirUsuariosAuth_(filas) {
   const h = asegurarAuthHojaUsuarios_();
   const cab = AUTH_SCHEMA.Usuarios;
   h.clearContents();
-  const matriz = [cab].concat(filas.map(f => cab.map(k => f[k] != null ? f[k] : '')));
+  const matriz = [cab].concat(filas.map(f => {
+    const u = normalizarUsuarioAuth_(Object.assign({}, f));
+    return cab.map(k => u[k] != null ? u[k] : '');
+  }));
   if (matriz.length) h.getRange(1, 1, matriz.length, cab.length).setValues(matriz);
   h.setFrozenRows(1);
 }
@@ -396,6 +428,7 @@ function leerUsuariosLegacyData_() {
       username: row[idx.username],
       password_hash: row[idx.password_hash],
       salt: row[idx.salt],
+      rol: idx.rol >= 0 ? row[idx.rol] : '',
       activo: idx.activo >= 0 ? row[idx.activo] : true,
       fecha_creacion: idx.fecha_creacion >= 0 ? row[idx.fecha_creacion] : isoAhora_()
     })).filter(r => r.username && r.password_hash && r.salt);
@@ -416,6 +449,7 @@ function obtenerConfigSheets() {
 }
 
 function setEntorno(entorno) {
+  requireAdmin_();
   const env = normalizarEntorno_(entorno);
   PropertiesService.getScriptProperties().setProperty(PROP_APP_ENV, env);
   // Garantiza que el entorno tenga sheet asignado.
@@ -425,6 +459,7 @@ function setEntorno(entorno) {
 }
 
 function setSheetIdEntorno(entorno, sheetId) {
+  requireAdmin_();
   const env = normalizarEntorno_(entorno);
   const id = String(sheetId || '').trim();
   if (!id) throw new Error('Debes indicar un sheetId válido.');
@@ -434,6 +469,7 @@ function setSheetIdEntorno(entorno, sheetId) {
 }
 
 function setAuthSheetIdEntorno(entorno, sheetId) {
+  requireAdmin_();
   const env = normalizarEntorno_(entorno);
   const id = String(sheetId || '').trim();
   if (!id) throw new Error('Debes indicar un sheetId válido.');
@@ -460,6 +496,7 @@ function setAuthSheetIdProduccion(sheetId) {
 }
 
 function resetSheet(entorno) {
+  requireAdmin_();
   const env = normalizarEntorno_(entorno || entornoActual_());
   const props = PropertiesService.getScriptProperties();
   props.deleteProperty(propIdPorEntorno_(env));
@@ -611,7 +648,7 @@ function bootstrapBase() {
   normalizarSubcuentasHuerfanas_(owner);
   generarRecurrentesPendientes_(owner, new Date());
   return {
-    sesion: { user: owner },
+    sesion: { user: owner, rol: currentRol_() || ROLES.BASICO },
     entorno: entornoActual_(),
     version: PropertiesService.getScriptProperties().getProperty('VERSION') || '',
     cuentas: obtenerCuentas(),
