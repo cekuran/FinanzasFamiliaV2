@@ -119,7 +119,7 @@ function asegurarUsuarios_() {
   }
 
   const defaultUser = 'admin';
-  const defaultPass = PropertiesService.getScriptProperties().getProperty('DEFAULT_ADMIN_PASSWORD') || 'admin1234';
+  const defaultPass = PropertiesService.getScriptProperties().getProperty('DEFAULT_ADMIN_PASSWORD') || 'admin';
   const salt = Utilities.getUuid().replace(/-/g, '');
   const nuevo = {
     username: defaultUser,
