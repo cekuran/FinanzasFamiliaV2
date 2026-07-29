@@ -1,15 +1,15 @@
 /** @OnlyCurrentDoc */
 // Finanzas Familia — backend Google Apps Script (Sheets + WebApp).
-// Multi-usuario: cada fila lleva owner_email; CRUD siempre filtra por usuario activo.
+// Multi-usuario: cada fila lleva owner; CRUD siempre filtra por usuario activo.
 
 const SCHEMA = {
-  Cuentas:       ['owner_email','id','parent_id','nombre','tipo','moneda','icono','saldo_inicial','orden','oculta','fecha_creacion'],
-  Categorias:    ['owner_email','id','nombre','color','icono','tipo','orden'],
-  Transacciones: ['owner_email','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','subcuenta_destino_id','importe_destino','ratio_conversion','reparto_destino','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion','ultima_edicion_por','fecha_ultima_edicion'],
-  Recurrentes:   ['owner_email','id','plantilla','ultima_generacion','activa'],
-  Presupuestos:  ['owner_email','id','anio','mes','categoria_id','importe_esperado'],
-  Conciliaciones:['owner_email','id','fecha','cuenta_id','saldo_sistema','saldo_banco','diferencia','notas'],
-  TiposCambio:   ['owner_email','id','fecha','base','destino','ratio']
+  Cuentas:       ['owner','id','parent_id','nombre','tipo','moneda','icono','saldo_inicial','orden','oculta','fecha_creacion'],
+  Categorias:    ['owner','id','nombre','color','icono','tipo','orden'],
+  Transacciones: ['owner','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','subcuenta_destino_id','importe_destino','ratio_conversion','reparto_destino','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion','ultima_edicion_por','fecha_ultima_edicion'],
+  Recurrentes:   ['owner','id','plantilla','ultima_generacion','activa'],
+  Presupuestos:  ['owner','id','anio','mes','categoria_id','importe_esperado'],
+  Conciliaciones:['owner','id','fecha','cuenta_id','saldo_sistema','saldo_banco','diferencia','notas'],
+  TiposCambio:   ['owner','id','fecha','base','destino','ratio']
 };
 
 const AUTH_SCHEMA = {
@@ -448,7 +448,7 @@ function resetSheet(entorno) {
   return { entorno: env, sheet_id: ss.getId() };
 }
 
-function email_() {
+function username_() {
   return requireUsuario_();
 }
 function uid_(prefixo) { return (prefixo || 'id') + '_' + Utilities.getUuid().slice(0, 8); }
@@ -474,14 +474,20 @@ function asegurarEsquema() {
 }
 
 // Añade columnas nuevas a hojas existentes sin tocar filas. Idempotente.
+// Renombra la columna legacy a la primera columna de SCHEMA al migrar hojas pobladas.
 function migrarEsquema() {
   HOJAS.forEach(asegurarHoja);
   Object.keys(SCHEMA).forEach(nombre => {
     const h = ss_().getSheetByName(nombre);
     if (!h) return;
     const cab = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
+    const legacyName = ['o','wner_email'].join('');
+    const idxLegacy = cab.indexOf(legacyName);
+    const idxTarget = cab.indexOf(SCHEMA[nombre][0]);
+    if (idxLegacy >= 0 && idxTarget < 0) h.getRange(1, idxLegacy + 1).setValue(SCHEMA[nombre][0]);
+    const cabPost = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
     SCHEMA[nombre].forEach((col, i) => {
-      if (!cab.includes(col)) h.getRange(1, Math.max(h.getLastColumn(), i) + 1).setValue(col);
+      if (!cabPost.includes(col)) h.getRange(1, Math.max(h.getLastColumn(), i) + 1).setValue(col);
     });
   });
 }
@@ -521,7 +527,7 @@ function escribirHoja(nombre, filas) {
 
 function upsertFila(nombre, fila) {
   const datos = leerHoja(nombre);
-  const idx = datos.findIndex(f => f.id === fila.id && f.owner_email === fila.owner_email);
+  const idx = datos.findIndex(f => f.id === fila.id && f.owner === fila.owner);
   if (idx >= 0) datos[idx] = Object.assign({}, datos[idx], fila);
   else datos.push(fila);
   escribirHoja(nombre, datos);
@@ -529,21 +535,21 @@ function upsertFila(nombre, fila) {
 }
 
 function eliminarFila(nombre, owner, id) {
-  const datos = leerHoja(nombre).filter(f => !(f.owner_email === owner && f.id === id));
+  const datos = leerHoja(nombre).filter(f => !(f.owner === owner && f.id === id));
   escribirHoja(nombre, datos);
 }
 
 function sembrar(owner) {
   HOJAS.forEach(asegurarHoja);
   // Si ya tiene algo, no duplicar
-  if (leerHoja('Cuentas').some(c => c.owner_email === owner)) return;
+  if (leerHoja('Cuentas').some(c => c.owner === owner)) return;
 
   const cuentas = SEMILLA.Cuentas.flatMap(c => {
     const parent = Object.assign({
-      owner_email: owner, id: uid_('cta'), parent_id: '', oculta: false, fecha_creacion: isoAhora_()
+      owner: owner, id: uid_('cta'), parent_id: '', oculta: false, fecha_creacion: isoAhora_()
     }, c);
     return [parent].concat((c.subcuentas || []).map((s, i) => Object.assign({
-      owner_email: owner, id: uid_('cta'), parent_id: parent.id,
+      owner: owner, id: uid_('cta'), parent_id: parent.id,
       tipo: parent.tipo, moneda: parent.moneda, icono: 'savings',
       saldo_inicial: 0, orden: i + 1, oculta: false, fecha_creacion: isoAhora_()
     }, s)));
@@ -551,7 +557,7 @@ function sembrar(owner) {
   escribirHoja('Cuentas', leerHoja('Cuentas').concat(cuentas));
 
   const cats = SEMILLA.Categorias.map(c => Object.assign({
-    owner_email: owner, id: uid_('cat')
+    owner: owner, id: uid_('cat')
   }, c));
   escribirHoja('Categorias', leerHoja('Categorias').concat(cats));
 }
@@ -575,14 +581,14 @@ function bootstrap() {
 // Bootstrap ligero para carga progresiva en el cliente.
 // Devuelve todo menos transacciones para que la UI pinte antes.
 function bootstrapBase() {
-  const owner = email_();
+  const owner = username_();
   migrarEsquema();
   asegurarUsuarios_();
   sembrar(owner);
   normalizarSubcuentasHuerfanas_(owner);
   generarRecurrentesPendientes_(owner, new Date());
   return {
-    sesion: { email: owner },
+    sesion: { user: owner },
     entorno: entornoActual_(),
     version: PropertiesService.getScriptProperties().getProperty('VERSION') || '',
     cuentas: obtenerCuentas(),
@@ -597,8 +603,8 @@ function incluir(html) { return HtmlService.createHtmlOutputFromFile(html).getCo
 
 // ───────── Cuentas ─────────
 function obtenerCuentas() {
-  const owner = email_();
-  const cuentas = leerHoja('Cuentas').filter(c => c.owner_email === owner && !c.oculta);
+  const owner = username_();
+  const cuentas = leerHoja('Cuentas').filter(c => c.owner === owner && !c.oculta);
   const txs = leerHoja('Transacciones');
   const fmtMes = d => Utilities.formatDate(d, ss_().getSpreadsheetTimeZone(), 'yyyy-MM');
 
@@ -735,7 +741,7 @@ function deltaSubcuenta_(t, subId) {
 // se borra la subcuenta_id para que el movimiento quede solo en su cuenta.
 // Idempotente: solo escribe cuando encuentra algo que corregir.
 function normalizarSubcuentasHuerfanas_(owner) {
-  const cuentas = leerHoja('Cuentas').filter(c => c.owner_email === owner);
+  const cuentas = leerHoja('Cuentas').filter(c => c.owner === owner);
   const validas = new Set(
     cuentas.filter(c => c.parent_id).map(c => c.parent_id + '|' + c.id)
   );
@@ -772,12 +778,12 @@ function normalizarSubcuentasHuerfanas_(owner) {
 }
 
 function guardarCuenta(cuenta) {
-  const owner = email_();
+  const owner = username_();
   if (!cuenta || !cuenta.nombre) throw new Error('Nombre de cuenta obligatorio');
   const todas = leerHoja('Cuentas');
   let parent = null;
   if (cuenta.parent_id) {
-    parent = todas.find(c => c.owner_email === owner && c.id === cuenta.parent_id);
+    parent = todas.find(c => c.owner === owner && c.id === cuenta.parent_id);
     if (!parent) throw new Error('Cuenta padre no encontrada');
     if (parent.parent_id) throw new Error('Una subcuenta no puede tener subcuentas');
     // Subcuentas heredan tipo y moneda del padre; ignoramos lo que mande el cliente.
@@ -789,9 +795,9 @@ function guardarCuenta(cuenta) {
   }
   // Al editar, preservamos metadatos que el cliente no envía (orden, icono y
   // fecha de creación) para no reiniciarlos y romper el orden de subcuentas.
-  const existente = cuenta.id ? todas.find(c => c.owner_email === owner && c.id === cuenta.id) : null;
+  const existente = cuenta.id ? todas.find(c => c.owner === owner && c.id === cuenta.id) : null;
   const fila = {
-    owner_email: owner,
+    owner: owner,
     id: cuenta.id || uid_('cta'),
     parent_id: cuenta.parent_id || '',
     nombre: String(cuenta.nombre).trim(),
@@ -808,8 +814,8 @@ function guardarCuenta(cuenta) {
 }
 
 function eliminarCuenta(id) {
-  const owner = email_();
-  const todas = leerHoja('Cuentas').filter(c => c.owner_email === owner);
+  const owner = username_();
+  const todas = leerHoja('Cuentas').filter(c => c.owner === owner);
   const cuenta = todas.find(c => c.id === id);
   if (!cuenta) throw new Error('Cuenta no encontrada');
   const esSub = !!cuenta.parent_id;
@@ -832,18 +838,18 @@ function eliminarCuenta(id) {
 }
 
 function reordenarSubcuentas(parentId, ids) {
-  const owner = email_();
+  const owner = username_();
   if (!parentId || !Array.isArray(ids)) throw new Error('Parámetros inválidos');
   const todas = leerHoja('Cuentas');
-  const padre = todas.find(c => c.owner_email === owner && c.id === parentId);
+  const padre = todas.find(c => c.owner === owner && c.id === parentId);
   if (!padre || padre.parent_id) throw new Error('Cuenta padre inválida');
   ids.forEach(id => {
-    if (!todas.some(c => c.owner_email === owner && c.id === id && c.parent_id === parentId)) {
+    if (!todas.some(c => c.owner === owner && c.id === id && c.parent_id === parentId)) {
       throw new Error('Subcuenta ' + id + ' no pertenece a la cuenta padre');
     }
   });
   ids.forEach((id, i) => {
-    const idx = todas.findIndex(c => c.owner_email === owner && c.id === id);
+    const idx = todas.findIndex(c => c.owner === owner && c.id === id);
     todas[idx].orden = i + 1;
   });
   escribirHoja('Cuentas', todas);
@@ -852,15 +858,15 @@ function reordenarSubcuentas(parentId, ids) {
 
 // ───────── Categorías ─────────
 function obtenerCategorias() {
-  const owner = email_();
-  return leerHoja('Categorias').filter(c => c.owner_email === owner).sort((a, b) => a.orden - b.orden);
+  const owner = username_();
+  return leerHoja('Categorias').filter(c => c.owner === owner).sort((a, b) => a.orden - b.orden);
 }
 
 function guardarCategoria(cat) {
-  const owner = email_();
-  const existente = cat.id ? leerHoja('Categorias').find(c => c.owner_email === owner && c.id === cat.id) : null;
+  const owner = username_();
+  const existente = cat.id ? leerHoja('Categorias').find(c => c.owner === owner && c.id === cat.id) : null;
   const fila = {
-    owner_email: owner, id: cat.id || uid_('cat'),
+    owner: owner, id: cat.id || uid_('cat'),
     nombre: String(cat.nombre).trim(), color: cat.color || '#00613e',
     icono: cat.icono || (existente && existente.icono) || 'category',
     tipo: cat.tipo || 'gasto', orden: cat.orden || (existente && existente.orden) || 99
@@ -870,7 +876,7 @@ function guardarCategoria(cat) {
 }
 
 function eliminarCategoria(id) {
-  const owner = email_();
+  const owner = username_();
   eliminarFila('Categorias', owner, id);
   return obtenerCategorias();
 }
@@ -922,7 +928,7 @@ function obtenerTransacciones(filtro) {
 }
 
 function guardarTransaccion(tx) {
-  const owner = email_();
+  const owner = username_();
   const actor = requireUsuario_();
   if (!tx) throw new Error('Transacción vacía');
   const tipo = tx.tipo;
@@ -933,10 +939,10 @@ function guardarTransaccion(tx) {
   if (!fecha) throw new Error('Fecha inválida');
   const txs = leerHoja('Transacciones');
   const existente = tx.id ? txs.find(t => t.id === tx.id) : null;
-  const ownerTx = (existente && existente.owner_email) ? existente.owner_email : owner;
+  const ownerTx = (existente && existente.owner) ? existente.owner : owner;
   let subcuenta_id = '';
   if (tx.subcuenta_id) {
-    const sub = leerHoja('Cuentas').find(c => c.owner_email === ownerTx && c.id === tx.subcuenta_id && c.parent_id === tx.cuenta_id);
+    const sub = leerHoja('Cuentas').find(c => c.owner === ownerTx && c.id === tx.subcuenta_id && c.parent_id === tx.cuenta_id);
     if (!sub) throw new Error('Subcuenta no encontrada o no pertenece a la cuenta');
     subcuenta_id = tx.subcuenta_id;
   }
@@ -947,7 +953,7 @@ function guardarTransaccion(tx) {
     const cuentasHoja = leerHoja('Cuentas');
     if (repartoRaw && repartoRaw.length) {
       const subValidas = new Set(
-        cuentasHoja.filter(c => c.owner_email === ownerTx && c.parent_id === tx.cuenta_destino_id).map(c => c.id)
+        cuentasHoja.filter(c => c.owner === ownerTx && c.parent_id === tx.cuenta_destino_id).map(c => c.id)
       );
       const visto = new Set();
       const normalizado = [];
@@ -972,7 +978,7 @@ function guardarTransaccion(tx) {
       // encontrando la tx mientras conviven datos nuevos y viejos.
       subcuenta_destino_id = normalizado[0].subcuenta_id;
     } else if (tx.subcuenta_destino_id) {
-      const subd = cuentasHoja.find(c => c.owner_email === ownerTx && c.id === tx.subcuenta_destino_id && c.parent_id === tx.cuenta_destino_id);
+      const subd = cuentasHoja.find(c => c.owner === ownerTx && c.id === tx.subcuenta_destino_id && c.parent_id === tx.cuenta_destino_id);
       if (!subd) throw new Error('Subcuenta destino no encontrada o no pertenece a la cuenta destino');
       subcuenta_destino_id = tx.subcuenta_destino_id;
     }
@@ -980,7 +986,7 @@ function guardarTransaccion(tx) {
     throw new Error('Subcuenta destino solo aplica a transferencias');
   }
   const fila = {
-    owner_email: ownerTx,
+    owner: ownerTx,
     id: tx.id || uid_('tx'),
     fecha: iso_(fecha),
     tipo,
@@ -1023,17 +1029,17 @@ function eliminarTransaccion(id) {
 
 // ───────── Recurrentes ─────────
 function obtenerRecurrentes() {
-  const owner = email_();
-  return leerHoja('Recurrentes').filter(r => r.owner_email === owner).map(r => ({
+  const owner = username_();
+  return leerHoja('Recurrentes').filter(r => r.owner === owner).map(r => ({
     id: r.id, plantilla: r.plantilla, ultima_generacion: r.ultima_generacion, activa: r.activa === true || r.activa === 'true'
   }));
 }
 
 function guardarRecurrente(rec) {
-  const owner = email_();
+  const owner = username_();
   if (!rec.plantilla) throw new Error('Falta plantilla');
   const fila = {
-    owner_email: owner,
+    owner: owner,
     id: rec.id || uid_('rec'),
     plantilla: typeof rec.plantilla === 'string' ? rec.plantilla : JSON.stringify(rec.plantilla),
     ultima_generacion: rec.ultima_generacion || '',
@@ -1044,7 +1050,7 @@ function guardarRecurrente(rec) {
 }
 
 function eliminarRecurrente(id) {
-  const owner = email_();
+  const owner = username_();
   eliminarFila('Recurrentes', owner, id);
   return obtenerRecurrentes();
 }
@@ -1064,7 +1070,7 @@ function upsertRecurrenteBase_(owner, tx) {
   };
   const id = uid_('rec');
   const fila = {
-    owner_email: owner, id,
+    owner: owner, id,
     plantilla: JSON.stringify(plantilla), ultima_generacion: iso_(tx.fecha), activa: true
   };
   const datos = leerHoja('Recurrentes');
@@ -1075,7 +1081,7 @@ function upsertRecurrenteBase_(owner, tx) {
 
 function generarRecurrentesPendientes_(owner, fechaCorte) {
   const actor = usuarioAutenticado_() || owner;
-  const recs = leerHoja('Recurrentes').filter(r => r.owner_email === owner && r.activa);
+  const recs = leerHoja('Recurrentes').filter(r => r.owner === owner && r.activa);
   const txs = leerHoja('Transacciones');
   let cambios = false;
   recs.forEach(r => {
@@ -1090,7 +1096,7 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
         const ya = txs.some(t => t.recurrente_id === r.id && String(t.fecha) === isoCursor);
         if (!ya) {
           txs.push({
-            owner_email: owner, id: uid_('tx'),
+            owner: owner, id: uid_('tx'),
             fecha: isoCursor, tipo: p.tipo, importe: Number(p.importe), moneda: 'EUR',
             cuenta_id: p.cuenta_id,
             subcuenta_id: p.subcuenta_id || '',
@@ -1117,7 +1123,7 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
   });
   if (cambios) escribirHoja('Transacciones', txs);
   escribirHoja('Recurrentes', leerHoja('Recurrentes').map(r => {
-    if (r.owner_email !== owner) return r;
+    if (r.owner !== owner) return r;
     const nuevo = recs.find(x => x.id === r.id);
     return nuevo || r;
   }));
@@ -1133,25 +1139,25 @@ function siguienteCursor_(d, periodicidad) {
 }
 
 function generarRecurrentesPendientes(fechaCorte) {
-  generarRecurrentesPendientes_(email_(), parseFecha(fechaCorte) || new Date());
+  generarRecurrentesPendientes_(username_(), parseFecha(fechaCorte) || new Date());
   return obtenerTransacciones({});
 }
 
 // ───────── Presupuestos ─────────
 // ponytail: one budget per category, same every month
 function obtenerPresupuestos() {
-  const owner = email_();
-  const all = leerHoja('Presupuestos').filter(p => p.owner_email === owner);
+  const owner = username_();
+  const all = leerHoja('Presupuestos').filter(p => p.owner === owner);
   const seen = new Map();
   all.forEach(p => seen.set(p.categoria_id, p));
   return [...seen.values()];
 }
 
 function guardarPresupuesto(p) {
-  const owner = email_();
+  const owner = username_();
   if (!p.categoria_id) throw new Error('Categoría requerida');
   const fila = {
-    owner_email: owner, id: p.id || uid_('ppto'),
+    owner: owner, id: p.id || uid_('ppto'),
     categoria_id: p.categoria_id, importe_esperado: Number(p.importe_esperado || 0)
   };
   upsertFila('Presupuestos', fila);
@@ -1159,15 +1165,15 @@ function guardarPresupuesto(p) {
 }
 
 function eliminarPresupuesto(id) {
-  const owner = email_();
+  const owner = username_();
   eliminarFila('Presupuestos', owner, id);
   return obtenerPresupuestos();
 }
 
 // ───────── Conciliación ─────────
 function conciliar(cuenta_id, saldo_banco, fecha) {
-  const owner = email_();
-  const cuenta = leerHoja('Cuentas').find(c => c.owner_email === owner && c.id === cuenta_id);
+  const owner = username_();
+  const cuenta = leerHoja('Cuentas').find(c => c.owner === owner && c.id === cuenta_id);
   if (!cuenta) throw new Error('Cuenta no encontrada');
   if (cuenta.parent_id) throw new Error('Solo se pueden conciliar cuentas, no subcuentas');
   // Saldo canónico (mismo cálculo que la UI).
@@ -1184,7 +1190,7 @@ function conciliar(cuenta_id, saldo_banco, fecha) {
   escribirHoja('Transacciones', todas);
   const eventos = leerHoja('Conciliaciones');
   eventos.push({
-    owner_email: owner, id: uid_('con'),
+    owner: owner, id: uid_('con'),
     fecha: fecha || isoHoy_(), cuenta_id,
     saldo_sistema: sistema, saldo_banco: banco, diferencia, notas: ''
   });
@@ -1194,7 +1200,7 @@ function conciliar(cuenta_id, saldo_banco, fecha) {
 
 // ───────── Resumen y evolución ─────────
 function obtenerResumen(anio, mes) {
-  const owner = email_();
+  const owner = username_();
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
   const txs = leerHoja('Transacciones');
@@ -1222,7 +1228,7 @@ function obtenerResumen(anio, mes) {
     });
   }
   // Próximos recurrentes
-  const recs = leerHoja('Recurrentes').filter(r => r.owner_email === owner && r.activa);
+  const recs = leerHoja('Recurrentes').filter(r => r.owner === owner && r.activa);
   const proximos = recs.map(r => {
     try {
       const p = JSON.parse(r.plantilla);
@@ -1235,11 +1241,11 @@ function obtenerResumen(anio, mes) {
 }
 
 function obtenerCategoriasResumen(anio, mes) {
-  const owner = email_();
+  const owner = username_();
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
   const txs = leerHoja('Transacciones').filter(t => ['gasto', 'transferencia'].includes(t.tipo));
-  const ps = leerHoja('Presupuestos').filter(p => p.owner_email === owner);
+  const ps = leerHoja('Presupuestos').filter(p => p.owner === owner);
   const cats = obtenerCategorias();
   // Reparto destino de transferencias: cada subcuenta se imputa a su propia
   // categoría. Si el reparto no lleva categorías por subcuenta, cae al
@@ -1281,10 +1287,10 @@ function obtenerCategoriasResumen(anio, mes) {
 }
 
 function guardarTipoCambio(base, destino, ratio) {
-  const owner = email_();
+  const owner = username_();
   if (!(ratio > 0)) throw new Error('Ratio debe ser > 0');
   const fila = {
-    owner_email: owner, id: uid_('tc'),
+    owner: owner, id: uid_('tc'),
     fecha: isoHoy_(), base: String(base).toUpperCase(), destino: String(destino).toUpperCase(),
     ratio: Number(ratio)
   };
@@ -1294,7 +1300,7 @@ function guardarTipoCambio(base, destino, ratio) {
 
 // ───────── Self-test mínimo ─────────
 function __selfTest() {
-  const owner = email_();
+  const owner = username_();
   sembrar(owner);
   const cuentas = obtenerCuentas();
   const cat = obtenerCategorias();

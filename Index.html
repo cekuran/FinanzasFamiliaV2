@@ -439,7 +439,7 @@
       <div class="avatar" id="avatar">U</div>
       <div>
         <div style="font-size: 16px; font-weight: 700; color: var(--on-surface);">Finanzas Familia</div>
-        <div style="font-size: 12px; color: var(--on-surface-variant);" id="userEmail">—</div>
+        <div style="font-size: 12px; color: var(--on-surface-variant);" id="userName">—</div>
       </div>
     </div>
     <div class="nav-item is-active" data-route="dashboard"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3z"/></svg> Inicio</div>
@@ -1190,11 +1190,11 @@ async function cargarUsuariosAdminUI() {
 
 async function iniciarAppAutenticada() {
   Estado.bootstrap = normalizarBootstrap(await call('bootstrapBase'));
-  const email = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.email) || '?';
+  const user = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.user) || '?';
   actualizarEntornoUI();
-  $('#avatar').textContent = (email[0] || 'U').toUpperCase();
-  $('#avatarM').textContent = (email[0] || 'U').toUpperCase();
-  $('#userEmail').textContent = email;
+  $('#avatar').textContent = (user[0] || 'U').toUpperCase();
+  $('#avatarM').textContent = (user[0] || 'U').toUpperCase();
+  $('#userName').textContent = user;
   poblarFiltros();
   go('dashboard');
   sincronizarTransacciones({ render: true, toastOnError: true });
@@ -1306,7 +1306,7 @@ async function cambiarEntornoDesdeUI() {
 
 function renderAdmin() {
   actualizarEntornoUI();
-  const isAdmin = ((Estado.bootstrap.sesion && Estado.bootstrap.sesion.email) || '') === 'admin';
+  const isAdmin = ((Estado.bootstrap.sesion && Estado.bootstrap.sesion.user) || '') === 'admin';
   $('#adminUserForm').style.display = isAdmin ? 'grid' : 'none';
   if (!isAdmin) {
     $('#adminUsersList').textContent = 'Solo admin puede gestionar usuarios.';
@@ -1629,7 +1629,7 @@ function renderMovimientos() {
     return `<tr>
       <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat)}</div></td>
       <td>${escape(t.fecha)}</td>
-      <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}<div class="body-sm" style="color: var(--on-surface-variant);">Alta: ${escape(t.owner_email || '—')} · Última edición: ${escape(t.ultima_edicion_por || t.owner_email || '—')} · ${escape(fmtFechaHora(t.fecha_ultima_edicion))}</div></td>
+      <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}<div class="body-sm" style="color: var(--on-surface-variant);">Alta: ${escape(t.owner || '—')} · Última edición: ${escape(t.ultima_edicion_por || t.owner || '—')} · ${escape(fmtFechaHora(t.fecha_ultima_edicion))}</div></td>
       <td>${cuentaHtml}</td>
       <td>${escape(cat ? cat.nombre : '—')}</td>
       <td><span class="pill ${pill}">${escape(t.estado)}</span></td>

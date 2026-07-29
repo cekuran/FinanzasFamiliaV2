@@ -7,11 +7,11 @@ Webapp de finanzas personales/familiares. Cada usuario ve solo sus datos, en cua
 - **Backend**: Google Apps Script (V8 runtime). Funciones expuestas vía `google.script.run`.
 - **DB**: Google Sheets, una hoja por entidad (`Cuentas`, `Transacciones`, `Categorias`, `Presupuestos`, `Recurrentes`, `Conciliacion`).
 - **Frontend**: Una sola página servida por `HtmlService`. HTML + CSS + JavaScript vanilla en un único `Index.html`. Sin build step.
-- **Multi-tenant**: columna `owner_email` en cada fila. El bootstrap filtra por el email del usuario autenticado.
+- **Multi-tenant**: columna `owner` en cada fila. El bootstrap filtra por el username del usuario autenticado.
 - **Timezone**: `Europe/Madrid` (`appsscript.json`).
 - **Auth scopes** (`appsscript.json`):
   - `https://www.googleapis.com/auth/spreadsheets` — leer/escribir las hojas.
-  - `https://www.googleapis.com/auth/userinfo.email` — identificar al usuario (`owner_email`).
+  - `https://www.googleapis.com/auth/userinfo.email` — identificar al usuario (`owner`).
 
 ## Arquitectura
 
@@ -39,7 +39,7 @@ Webapp de finanzas personales/familiares. Cada usuario ve solo sus datos, en cua
 ┌─────────────────────────────────────────────────┐
 │  Google Sheets (1 workbook compartido)          │
 │  Hojas: Cuentas, Transacciones, …               │
-│  Cada fila: id, owner_email, …campos entidad    │
+│  Cada fila: id, owner, …campos entidad    │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -108,7 +108,7 @@ Es idempotente — se puede llamar cada vez sin daño. Se ejecuta en `doGet`/boo
 ## Decisiones de diseño
 
 - **Sheets como DB**: cero operaciones de DB; el spreadsheet mismo sirve como UI de auditoría. Trade-off: rendimiento y validación más limitadas a partir de cierto volumen.
-- **Multi-tenant por columna** `owner_email` y no por spreadsheet separado: una sola fuente de verdad, un deploy, una URL de webapp.
+- **Multi-tenant por columna** `owner` y no por spreadsheet separado: una sola fuente de verdad, un deploy, una URL de webapp.
 - **Frontend vanilla, sin bundler**: HtmlService penaliza los frameworks por tamaño y CSP. Vanilla es suficiente para la escala esperada.
 - **Subcuentas a un solo nivel**: evitar explosión combinatoria de permisos y visualizaciones. Si se necesitan jerarquías, probablemente toca cambiar de modelo.
 - **Saldo canónico en conciliación**: `conciliar()` consulta `obtenerCuentas()` para evitar el bug de excluir txs de subcuentas marcado `conciliado`.

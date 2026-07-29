@@ -1,6 +1,6 @@
 # Finanzas Familia
 
-Personal/family finance webapp. Google Apps Script backend (`code.js`) + single-file frontend (`Index.html`) + Google Sheets as the database. Deployed as a webapp, multi-user isolated by `owner_email`.
+Personal/family finance webapp. Google Apps Script backend (`code.js`) + single-file frontend (`Index.html`) + Google Sheets as the database. Deployed as a webapp, multi-user isolated by `owner`.
 
 ## Deploy
 
@@ -19,7 +19,7 @@ No local loop — refresh the deployed webapp URL to verify changes. Timezone: `
 
 ## Data model
 
-- One sheet per entity; rows = records, columns = fields. Each row carries an `owner_email` for multi-tenant filtering.
+- One sheet per entity; rows = records, columns = fields. Each row carries an `owner` for multi-tenant filtering.
 - **Cuentas** → **Subcuentas**: via `parent_id`. One level of nesting only.
 - **Transacciones**: `cuenta_id` + optional `subcuenta_id`. Account saldo = `saldo_inicial` + sum(tx delta); parent saldo includes its subcuentas' saldos.
 - `SCHEMA` (top of `code.js`) is the source of truth. `migrarEsquema()` adds missing columns idempotently on bootstrap; new columns append at the sheet's end and the next `upsertFila` realigns.
@@ -59,5 +59,5 @@ One route per view, one render function per route. Mutations route through helpe
 
 - No dev server — `clasp push` then refresh the deployed URL.
 - HtmlService strips/limits certain HTML/CSS; avoid heavy client-side frameworks.
-- Every row is tenant-scoped via `owner_email`; never assume cross-user visibility.
+- Every row is tenant-scoped via `owner`; never assume cross-user visibility.
 
