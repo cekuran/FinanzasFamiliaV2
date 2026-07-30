@@ -1453,13 +1453,57 @@ function obtenerRecurrentes() {
   }));
 }
 
+function validarPlantillaRecurrente_(owner, plantilla) {
+  const p = plantilla || {};
+  if (!['gasto', 'ingreso', 'transferencia'].includes(p.tipo)) throw new Error('Tipo inválido');
+  if (!p.cuenta_id) throw new Error('Cuenta obligatoria');
+  if (!(Number(p.importe) > 0)) throw new Error('Importe debe ser > 0');
+  if (!['mensual', 'semanal', 'diario', 'anual'].includes(String(p.periodicidad || 'mensual'))) {
+    throw new Error('Periodicidad inválida');
+  }
+  if (p.tipo !== 'transferencia') return p;
+
+  if (!p.cuenta_destino_id) throw new Error('Cuenta destino obligatoria en transferencia recurrente');
+  if (String(p.cuenta_destino_id) === String(p.cuenta_id)) {
+    throw new Error('La cuenta destino no puede ser la misma que la cuenta origen');
+  }
+
+  const cuentas = leerHoja('Cuentas').filter(c => c.owner === owner);
+  if (p.subcuenta_destino_id) {
+    const sub = cuentas.find(c => c.id === p.subcuenta_destino_id && c.parent_id === p.cuenta_destino_id);
+    if (!sub) throw new Error('Subcuenta destino no encontrada o no pertenece a la cuenta destino');
+  }
+
+  const reparto = parseRepartoDestino_(p.reparto_destino);
+  if (reparto.length) {
+    const subValidas = new Set(cuentas.filter(c => c.parent_id === p.cuenta_destino_id).map(c => c.id));
+    let suma = 0;
+    reparto.forEach(r => {
+      if (!subValidas.has(r.subcuenta_id)) throw new Error('Subcuenta destino no pertenece a la cuenta destino');
+      if (!(Number(r.importe) > 0)) throw new Error('Importe de destino debe ser > 0');
+      suma += Number(r.importe || 0);
+    });
+    const totalEsperado = p.importe_destino ? Number(p.importe_destino) : Number(p.importe || 0);
+    if (Math.abs(suma - totalEsperado) > 0.01) {
+      throw new Error('La suma del reparto no coincide con el importe destino');
+    }
+  }
+
+  if (p.ratio_conversion && !(Number(p.importe_destino) > 0)) {
+    throw new Error('Falta importe destino o ratio de conversión');
+  }
+  return p;
+}
+
 function guardarRecurrente(rec) {
   const owner = username_();
   if (!rec.plantilla) throw new Error('Falta plantilla');
+  const plantilla = typeof rec.plantilla === 'string' ? JSON.parse(rec.plantilla) : Object.assign({}, rec.plantilla);
+  validarPlantillaRecurrente_(owner, plantilla);
   const fila = {
     owner: owner,
     id: rec.id || uid_('rec'),
-    plantilla: typeof rec.plantilla === 'string' ? rec.plantilla : JSON.stringify(rec.plantilla),
+    plantilla: JSON.stringify(plantilla),
     ultima_generacion: rec.ultima_generacion || '',
     activa: rec.activa !== false
   };

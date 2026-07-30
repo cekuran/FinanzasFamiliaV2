@@ -1083,6 +1083,7 @@
         <select class="select" name="tipo" id="recTipo">
           <option value="gasto">Gasto</option>
           <option value="ingreso">Ingreso</option>
+          <option value="transferencia">Transferencia</option>
         </select>
       </div>
       <div class="field"><label>Periodicidad</label>
@@ -1095,7 +1096,13 @@
       </div>
     </div>
     <div class="field"><label>Cuenta</label><select class="select" name="cuenta_id" id="recCuenta" required></select></div>
+    <div class="field" id="wrapRecCuentaDest" style="display: none;"><label>Cuenta destino</label><select class="select" name="cuenta_destino_id" id="recCuentaDest"></select></div>
+    <div class="field" id="wrapRecSubcuentaDest" style="display: none;"><label>Subcuenta destino</label><select class="select" name="subcuenta_destino_id" id="recSubcuentaDest"><option value="">— Ninguna —</option></select></div>
     <div class="field"><label>Categoría</label><select class="select" name="categoria_id" id="recCat"></select></div>
+    <div class="field-row" id="wrapRecConversion" style="display: none;">
+      <div class="field"><label>Importe destino</label><input class="input" type="number" step="0.01" name="importe_destino" id="recImporteDest"></div>
+      <div class="field"><label>Ratio (1 origen = X destino)</label><input class="input" type="number" step="0.000001" name="ratio_conversion" id="recRatio"></div>
+    </div>
     <div style="display: flex; gap: var(--s-2); margin-top: var(--s-3);">
       <button type="button" class="btn btn-secondary" id="recCancel" style="flex: 1;">Cancelar</button>
       <button type="submit" class="btn btn-primary" style="flex: 2;">Guardar</button>
@@ -2036,13 +2043,17 @@ function renderRecurrentes() {
   $('#recList').innerHTML = recs.map(r => {
     const p = typeof r.plantilla === 'string' ? JSON.parse(r.plantilla) : r.plantilla;
     const cta = Estado.bootstrap.cuentas.find(c => c.id === p.cuenta_id);
+    const ctaD = Estado.bootstrap.cuentas.find(c => c.id === p.cuenta_destino_id);
     const cat = Estado.bootstrap.categorias.find(c => c.id === p.categoria_id);
     const sign = p.tipo === 'ingreso' ? 1 : -1;
+    const detalleCuenta = p.tipo === 'transferencia'
+      ? `${escape(cta ? cta.nombre : '—')} → ${escape(ctaD ? ctaD.nombre : '—')}`
+      : escape(cta ? cta.nombre : '—');
     return `<div class="card card-pad-md" style="display: flex; align-items: center; gap: var(--s-4);">
       <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat)}</div>
       <div style="flex: 1;">
         <div class="title-sm">${escape(p.descripcion || '—')}</div>
-        <div class="body-sm" style="color: var(--on-surface-variant);">${escape(cta ? cta.nombre : '—')} · día ${p.dia_mes} · ${escape(p.periodicidad)}</div>
+        <div class="body-sm" style="color: var(--on-surface-variant);">${detalleCuenta} · día ${p.dia_mes} · ${escape(p.periodicidad)}</div>
       </div>
       <div class="data-tabular" style="font-weight: 700; color: ${sign > 0 ? 'var(--primary)' : 'var(--error)'};">${sign > 0 ? '+' : '-'}${fmtMoneda(p.importe)}</div>
       <label class="switch"><input type="checkbox" ${r.activa ? 'checked' : ''} data-rec-toggle="${r.id}"><span class="track"><span class="knob"></span></span></label>
@@ -2630,6 +2641,58 @@ $('#formCat').addEventListener('submit', async (e) => {
 // ultima_generacion entre openRec y el submit. Permite editar sin perder
 // campos que el sheet no expone (subcuenta_id, cuenta_destino_id, reparto).
 const recDraft = { id: '', plantilla: '', ultima_generacion: '' };
+function poblarCategoriasRecurrente(tipo, categoriaId) {
+  const cats = tipo === 'transferencia'
+    ? Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto')
+    : Estado.bootstrap.categorias.filter(c => c.tipo === tipo);
+  poblarSelect('#recCat', cats, categoriaId || '', c => c.nombre);
+}
+
+function actualizarDestinoRecurrente(preferred) {
+  const tipo = $('#recTipo').value;
+  const wrapCuentaDest = $('#wrapRecCuentaDest');
+  const wrapSubcuentaDest = $('#wrapRecSubcuentaDest');
+  const wrapConversion = $('#wrapRecConversion');
+  const catLabel = $('#recCat').closest('.field').querySelector('label');
+  const cuentaOrigenId = $('#recCuenta').value || '';
+  const cuentasDestino = Estado.bootstrap.cuentas.filter(c => c.id !== cuentaOrigenId);
+  const cuentaDestinoActual = preferred && preferred.keepCurrent
+    ? $('#recCuentaDest').value
+    : ((preferred && preferred.cuenta_destino_id) || $('#recCuentaDest').value || '');
+  const cuentaDestinoValida = cuentasDestino.some(c => c.id === cuentaDestinoActual) ? cuentaDestinoActual : '';
+
+  wrapCuentaDest.style.display = tipo === 'transferencia' ? '' : 'none';
+  wrapConversion.style.display = tipo === 'transferencia' ? '' : 'none';
+  catLabel.textContent = tipo === 'transferencia' ? 'Categoría origen' : 'Categoría';
+  $('#recCuentaDest').innerHTML = '<option value="">—</option>' + cuentasDestino.map(c =>
+    `<option value="${c.id}" ${c.id === cuentaDestinoValida ? 'selected' : ''}>${escape(c.nombre + ' (' + c.moneda + ')')}</option>`
+  ).join('');
+
+  const ctaD = Estado.bootstrap.cuentas.find(c => c.id === cuentaDestinoValida);
+  const subsD = (ctaD && ctaD.subcuentas) || [];
+  const subDestActual = preferred && preferred.keepCurrent
+    ? $('#recSubcuentaDest').value
+    : ((preferred && preferred.subcuenta_destino_id) || '');
+  wrapSubcuentaDest.style.display = tipo === 'transferencia' && subsD.length ? '' : 'none';
+  if (subsD.length) {
+    $('#recSubcuentaDest').innerHTML = '<option value="">— Ninguna —</option>' + subsD.map(s =>
+      `<option value="${s.id}" ${s.id === subDestActual ? 'selected' : ''}>${escape(s.nombre)}</option>`
+    ).join('');
+  } else {
+    $('#recSubcuentaDest').innerHTML = '<option value="">— Ninguna —</option>';
+  }
+}
+
+function syncFormRecurrente(plantilla) {
+  const p = plantilla || {};
+  const tipo = p.tipo || $('#recTipo').value || 'gasto';
+  $('#recTipo').value = tipo;
+  poblarCategoriasRecurrente(tipo, p.categoria_id || '');
+  actualizarDestinoRecurrente(p);
+  $('#recImporteDest').value = p.importe_destino || '';
+  $('#recRatio').value = p.ratio_conversion || '';
+}
+
 function openRec(id) {
   const r = id ? Estado.bootstrap.recurrentes.find(x => x.id === id) : null;
   const p = r ? (typeof r.plantilla === 'string' ? JSON.parse(r.plantilla) : (r.plantilla || {})) : {};
@@ -2637,16 +2700,21 @@ function openRec(id) {
   $('#recDesc').value = p.descripcion || '';
   $('#recImporte').value = p.importe || '';
   $('#recDia').value = p.dia_mes || 1;
-  $('#recTipo').value = p.tipo || 'gasto';
   $('#recPer').value = p.periodicidad || 'mensual';
   poblarSelect('#recCuenta', Estado.bootstrap.cuentas, p.cuenta_id || '', c => c.nombre + ' (' + c.moneda + ')');
-  poblarSelect('#recCat', Estado.bootstrap.categorias, p.categoria_id || '', c => c.nombre);
+  syncFormRecurrente(p);
   recDraft.id = r ? r.id : '';
   recDraft.plantilla = r ? r.plantilla : '';
   recDraft.ultima_generacion = r ? (r.ultima_generacion || '') : '';
   openSheet('sheetRec');
 }
 $('#recCancel').addEventListener('click', closeAllSheets);
+$('#recTipo').addEventListener('change', () => {
+  poblarCategoriasRecurrente($('#recTipo').value, '');
+  actualizarDestinoRecurrente({ keepCurrent: true });
+});
+$('#recCuenta').addEventListener('change', () => actualizarDestinoRecurrente({ keepCurrent: true }));
+$('#recCuentaDest').addEventListener('change', () => actualizarDestinoRecurrente({ keepCurrent: true }));
 $('#formRec').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
@@ -2654,15 +2722,40 @@ $('#formRec').addEventListener('submit', async (e) => {
   if (recDraft.plantilla) {
     try { base = JSON.parse(recDraft.plantilla); } catch (_) { /* ponytail: plantilla corrupta → empezar de cero */ }
   }
+  const tipo = f.get('tipo');
+  const esTransfer = tipo === 'transferencia';
+  const cuentaDestinoId = esTransfer ? (f.get('cuenta_destino_id') || '') : '';
+  const subcuentaDestinoId = esTransfer ? (f.get('subcuenta_destino_id') || '') : '';
+  const importeDestino = esTransfer ? Number(f.get('importe_destino') || 0) : 0;
+  const ratioConversion = esTransfer ? Number(f.get('ratio_conversion') || 0) : 0;
+  const repartoPrevio = parseRepartoFromTx_(base) || [];
+  const mantenerReparto = esTransfer
+    && repartoPrevio.length > 1
+    && String(base.cuenta_destino_id || '') === String(cuentaDestinoId)
+    && !subcuentaDestinoId;
   const plantilla = Object.assign({}, base, {
     descripcion: f.get('descripcion'),
     importe: Number(f.get('importe')),
-    tipo: f.get('tipo'),
+    tipo: tipo,
     periodicidad: f.get('periodicidad'),
     dia_mes: Number(f.get('dia_mes')),
     cuenta_id: f.get('cuenta_id'),
+    cuenta_destino_id: cuentaDestinoId,
+    subcuenta_destino_id: subcuentaDestinoId,
+    importe_destino: esTransfer && importeDestino > 0 ? importeDestino : '',
+    ratio_conversion: esTransfer && ratioConversion > 0 ? ratioConversion : '',
+    reparto_destino: mantenerReparto
+      ? (typeof base.reparto_destino === 'string' ? base.reparto_destino : JSON.stringify(repartoPrevio))
+      : '',
     categoria_id: f.get('categoria_id') || ''
   });
+  if (!esTransfer) {
+    plantilla.cuenta_destino_id = '';
+    plantilla.subcuenta_destino_id = '';
+    plantilla.importe_destino = '';
+    plantilla.ratio_conversion = '';
+    plantilla.reparto_destino = '';
+  }
   if (!recDraft.id && !plantilla.inicio) plantilla.inicio = new Date().toISOString().slice(0, 10);
   try {
     const args = { plantilla, activa: true };
