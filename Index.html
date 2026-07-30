@@ -850,12 +850,12 @@
       </div>
       <div class="bento" style="margin-top: var(--s-4);">
         <div class="card col-6">
-          <div class="card-h"><h2>Entorno de datos</h2></div>
-          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Este despliegue usa un único entorno de datos.</div>
+          <div class="card-h"><h2>Hoja activa</h2></div>
+          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Spreadsheet de datos que usa actualmente este usuario.</div>
           <div class="env-switch" style="margin-bottom: var(--s-3);">
-            <span class="env-badge" id="adminEnvBadge">PROD</span>
+            <span class="env-badge" id="adminEnvBadge" style="min-width:0;max-width:200px;overflow:hidden;text-overflow:ellipsis;">—</span>
           </div>
-          <div class="body-sm" id="adminEnvInfo" style="color: var(--on-surface-variant);">Entorno activo: Producción</div>
+          <div class="body-sm" id="adminEnvInfo" style="color: var(--on-surface-variant);">—</div>
         </div>
         <div class="card col-6">
           <div class="card-h"><h2>Usuarios</h2></div>
@@ -1291,7 +1291,7 @@ function setIconPick(grid, value) {
 }
 
 const Estado = {
-  bootstrap: { cuentas: [], categorias: [], transacciones: [], recurrentes: [], presupuestos: [], resumen: null, sesion: null, version: '', entorno: 'production' },
+  bootstrap: { cuentas: [], categorias: [], transacciones: [], recurrentes: [], presupuestos: [], resumen: null, sesion: null, version: '', hojas: [], hojaActivaId: '' },
   filtros: { cuenta_id: '', subcuenta_id: '', tipo: '', categoria_id: '', desde: '', hasta: '', q: '' },
   movOrden: { campo: 'fecha', direccion: 'desc' },
   pres: { anio: new Date().getFullYear(), mes: new Date().getMonth() + 1, asignado: {} },
@@ -1581,17 +1581,23 @@ function normalizarBootstrap(b) {
     resumen: b.resumen || null,
     sesion: b.sesion || null,
     version: b.version || '',
-    entorno: 'production',
     hojas: Array.isArray(b.hojas) ? b.hojas : [],
     hojaActivaId: b.hojaActivaId || ''
   };
 }
 
+function nombreHojaActiva_() {
+  const activa = Estado.bootstrap.hojaActivaId;
+  const hoja = (Estado.bootstrap.hojas || []).find(h => h.spreadsheet_id === activa);
+  return hoja ? hoja.nombre : (activa ? '(sin nombre)' : '—');
+}
+
 function actualizarEntornoUI() {
-  $('#adminEnvBadge').textContent = 'PROD';
-  $('#adminEnvInfo').textContent = 'Entorno activo: Producción';
+  const nombre = nombreHojaActiva_();
+  $('#adminEnvBadge').textContent = nombre;
+  $('#adminEnvInfo').textContent = 'Hoja activa: ' + nombre;
   const v = Estado.bootstrap.version;
-  $('#sidebarFoot').textContent = (v ? 'v' + v + ' · ' : '') + 'Finanzas Familia · PROD';
+  $('#sidebarFoot').textContent = (v ? 'v' + v + ' · ' : '') + nombre;
 }
 
 function renderAdmin() {

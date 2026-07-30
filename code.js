@@ -977,7 +977,6 @@ function bootstrapBase() {
   generarRecurrentesPendientes_(owner, new Date());
   return {
     sesion: { user: owner, rol: currentRol_() || ROLES.BASICO },
-    entorno: entornoActual_(),
     version: PropertiesService.getScriptProperties().getProperty('VERSION') || '',
     hojas: listarHojasDelUsuario_(owner),
     hojaActivaId: _currentSheetId || resolverHojaActivaId_(owner),
