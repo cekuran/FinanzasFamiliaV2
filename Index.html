@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#00613e">
-<title>Finanzas Familia</title>
+<title id="docTitle">Finanzas Familia</title>
 <style>
   /* === Sistema de diseño Finanzas Familia === */
   :root {
@@ -533,7 +533,7 @@
         </div>
       </div>
       <div>
-        <div style="font-size: 16px; font-weight: 700; color: var(--on-surface);">Finanzas Familia</div>
+        <div style="font-size: 16px; font-weight: 700; color: var(--on-surface);" id="brandHoja">Finanzas Familia</div>
         <div style="font-size: 12px; color: var(--on-surface-variant);" id="userName">—</div>
       </div>
     </div>
@@ -1116,6 +1116,11 @@
 
 <script>
 const EUR = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+function nombreHojaActiva() {
+  const activa = Estado.bootstrap.hojaActivaId;
+  const hoja = (Estado.bootstrap.hojas || []).find(h => h.spreadsheet_id === activa);
+  return hoja ? hoja.nombre : '';
+}
 const fmtMoneda = (v, m) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: m || 'EUR', maximumFractionDigits: 2 }).format(Number(v || 0));
 const fmtNum = (v, m) => fmtMoneda(v, m);
 const fmtDec = (v, dec = 2) => Number(v || 0).toLocaleString('es-ES', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -1457,11 +1462,26 @@ async function cargarHojasAdminUI() {
   }
 }
 
+function actualizarNombreHojaUI() {
+  const nombre = nombreHojaActiva();
+  const texto = nombre || 'Finanzas Familia';
+  const brand = $('#brandHoja');
+  if (brand) brand.textContent = texto;
+  const title = $('#docTitle');
+  if (title) title.textContent = texto;
+  const foot = $('#sidebarFoot');
+  if (foot) {
+    const v = Estado.bootstrap.version;
+    foot.textContent = (v ? 'v' + v + ' · ' : '') + texto;
+  }
+}
+
 async function iniciarAppAutenticada() {
   Estado.bootstrap = normalizarBootstrap(await call('bootstrapBase'));
   const user = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.user) || '?';
   aplicarRolesUI();
   actualizarSelectorHoja();
+  actualizarNombreHojaUI();
   $('#avatar').textContent = (user[0] || 'U').toUpperCase();
   $('#avatarM').textContent = (user[0] || 'U').toUpperCase();
   $('#userName').textContent = user;
@@ -2734,6 +2754,7 @@ async function recargar() {
     transacciones: Array.isArray(txs) ? txs : []
   }));
   aplicarRolesUI();
+  actualizarNombreHojaUI();
   limpiarFiltrosInvalidos();
   poblarFiltros();
   if (location.hash.startsWith('#/')) go(location.hash.slice(2));
