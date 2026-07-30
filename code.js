@@ -887,17 +887,33 @@ function normalizarValor_(v) {
   return v;
 }
 
+// Cache por invocación para evitar múltiples lecturas de la misma hoja
+// dentro de una única ejecución (p. ej. bootstrapBase).
+const _sheetReadCache = {};
+function cloneRows_(rows) {
+  return (rows || []).map(r => Object.assign({}, r));
+}
+function invalidateSheetCache_(nombre) {
+  if (nombre) delete _sheetReadCache[nombre];
+}
+
 function leerHoja(nombre) {
+  if (_sheetReadCache[nombre]) return cloneRows_(_sheetReadCache[nombre]);
   asegurarHoja(nombre);
   const h = ssActiva_().getSheetByName(nombre);
   const valores = h.getDataRange().getValues();
-  if (valores.length < 2) return [];
+  if (valores.length < 2) {
+    _sheetReadCache[nombre] = [];
+    return [];
+  }
   const cab = valores[0];
-  return valores.slice(1).map(fila => {
+  const rows = valores.slice(1).map(fila => {
     const o = {};
     cab.forEach((k, i) => (o[k] = normalizarValor_(fila[i])));
     return o;
   });
+  _sheetReadCache[nombre] = rows;
+  return cloneRows_(rows);
 }
 
 function escribirHoja(nombre, filas) {
@@ -907,6 +923,7 @@ function escribirHoja(nombre, filas) {
   const matriz = [cab].concat(filas.map(f => cab.map(k => f[k] != null ? f[k] : '')));
   if (matriz.length) h.getRange(1, 1, matriz.length, cab.length).setValues(matriz);
   h.setFrozenRows(1);
+  _sheetReadCache[nombre] = cloneRows_(filas);
 }
 
 function upsertFila(nombre, fila) {

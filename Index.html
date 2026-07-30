@@ -2764,15 +2764,10 @@ async function recargar() {
   const token = ++_txSyncToken;
   const route = getActiveRoute();
   setRouteLoading(route);
-  const [base, txs] = await Promise.all([
-    call('bootstrapBase'),
-    call('obtenerTransacciones', {})
-  ]);
+  const boot = await call('bootstrap');
   if (token !== _txSyncToken) return;
-  if (!base) { toast('No se pudo recargar'); return; }
-  Estado.bootstrap = normalizarBootstrap(Object.assign({}, base, {
-    transacciones: Array.isArray(txs) ? txs : []
-  }));
+  if (!boot) { toast('No se pudo recargar'); return; }
+  Estado.bootstrap = normalizarBootstrap(boot);
   aplicarRolesUI();
   actualizarNombreHojaUI();
   limpiarFiltrosInvalidos();
