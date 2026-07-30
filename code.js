@@ -69,12 +69,19 @@ let _currentToken = '';
 // Hoja activa resuelta por _authadmin a partir de HojasUsuarios; las funciones
 // de datos la consultan vía ssActiva_() en vez del sheet fijo por entorno.
 let _currentSheetId = '';
+// Override para los self-tests: cuando está activo, currentUser_/currentRol_
+// devuelven un usuario fijo sin chequear _currentToken ni ScriptProperties.
+// Solo se activa dentro de __selfTest*/__selfTestHojas* (try/finally) y se
+// descarta al volver la request.
+let _selfTestActive = false;
+const SELF_TEST_USER = '__selftest__';
 
 function tokenMapKey_(token) {
   return PROP_TOKEN_PREFIX + normalizarEntorno_(entornoActual_()) + '_' + String(token || '').trim();
 }
 
 function currentUser_() {
+  if (_selfTestActive) return SELF_TEST_USER;
   if (!_currentToken) return '';
   return validarTokenSesion_(_currentToken);
 }
@@ -86,6 +93,7 @@ function requireUsuario_() {
 }
 
 function currentRol_() {
+  if (_selfTestActive) return ROLES.ADMIN;
   const username = currentUser_();
   if (!username) return '';
   const u = buscarUsuario_(username);
@@ -1726,7 +1734,16 @@ function guardarTipoCambio(base, destino, ratio) {
 
 // ───────── Self-test mínimo ─────────
 function __selfTest() {
-  const owner = username_();
+  _selfTestActive = true;
+  const owner = SELF_TEST_USER;
+  try {
+    return __selfTestBody_(owner);
+  } finally {
+    _selfTestActive = false;
+  }
+}
+
+function __selfTestBody_(owner) {
   sembrar(owner);
   const cuentas = obtenerCuentas();
   const cat = obtenerCategorias();
@@ -1881,8 +1898,16 @@ function __selfTest() {
 // no dejar rastro en las páginas auth aunque un assert falle. Las pruebas
 // tocan solo las hojas de auth, no SpreadsheetApp.openById: los IDs son fake.
 function __selfTestHojas() {
-  const owner = currentUser_();
-  if (!owner) throw new Error('No autenticado');
+  _selfTestActive = true;
+  try {
+    return __selfTestHojasBody_();
+  } finally {
+    _selfTestActive = false;
+  }
+}
+
+function __selfTestHojasBody_() {
+  const owner = SELF_TEST_USER;
 
   const snapSpreads = leerSpreadsheets_();
   const snapLinks = leerHojasUsuarios_();
