@@ -901,6 +901,7 @@
           <div class="card-h"><h2>Hoja activa</h2></div>
           <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Spreadsheet de datos que usa actualmente este usuario.</div>
           <select class="select" id="cfgHojaSelect" aria-label="Hoja de datos activa"></select>
+          <div class="body-sm" id="cfgHojaStatus" role="status" aria-live="polite" style="margin-top: var(--s-2); min-height: 1.2em; color: var(--on-surface-variant);"></div>
         </div>
       </div>
     </section>
@@ -1511,13 +1512,27 @@ function actualizarSelectorHoja() {
 async function cambiarHojaActivaUI(spreadsheetId) {
   if (!spreadsheetId) return;
   const sel = $('#cfgHojaSelect');
-  const originalLabel = sel ? sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text : '';
+  if (sel) sel.value = spreadsheetId;
+  const status = $('#cfgHojaStatus');
+  const setStatus = (txt, ok) => {
+    if (!status) return;
+    status.textContent = txt || '';
+    status.style.color = ok === true ? 'var(--primary)'
+      : ok === false ? 'var(--error)'
+      : 'var(--on-surface-variant)';
+  };
   if (sel) sel.disabled = true;
+  setStatus('Guardando cambio de hoja…');
   try {
     await call('cambiarHojaActiva', spreadsheetId);
+    setStatus('Recargando datos…');
     await recargar();
-    toast('Hoja activa: ' + (originalLabel || spreadsheetId));
+    const nuevaNombre = nombreHojaActiva();
+    setStatus('✓ Hoja activa: ' + (nuevaNombre || spreadsheetId), true);
+    toast('Hoja activa: ' + (nuevaNombre || spreadsheetId));
   } catch (err) {
+    actualizarSelectorHoja();
+    setStatus('No se pudo cambiar: ' + (err.message || 'error'), false);
     toast('Error: ' + err.message);
   } finally {
     if (sel) sel.disabled = false;
