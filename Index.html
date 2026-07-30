@@ -356,6 +356,9 @@
   .progress-fill.warn { background: var(--amber); }
   .progress-fill.danger { background: var(--error); }
 
+  /* === Hoja selector (header) === */
+  .hoja-selector { width: auto; min-width: 0; max-width: 180px; padding: 8px 12px; font-size: 13px; border-radius: var(--r-full); }
+
   /* === Bottom nav === */
   .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; background: var(--surface-container-lowest); border-top: 1px solid var(--surface-container); display: flex; justify-content: space-around; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0)); }
   @media (min-width: 900px) { .bottom-nav { display: none; } }
@@ -455,6 +458,19 @@
   .user-row-reset { display: none; flex-wrap: wrap; gap: 6px; }
   .user-row-reset.is-open { display: flex; }
   .user-row-reset .input { flex: 1 1 180px; min-width: 180px; padding: 10px 12px; font-size: 14px; }
+
+  .hoja-row { padding: 12px 0; border-top: 1px solid var(--surface-container); display: flex; flex-direction: column; gap: 6px; }
+  .hoja-row-main { display: flex; gap: 8px; align-items: flex-start; }
+  .hoja-row-info { flex: 1; min-width: 0; }
+  .hoja-row-name { font-weight: 600; font-size: 15px; }
+  .hoja-row-id { font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace; font-size: 11px; color: var(--on-surface-variant); word-break: break-all; }
+  .hoja-row-desc { font-size: 13px; color: var(--on-surface-variant); margin-top: 2px; }
+  .hoja-row-users { font-size: 13px; margin-top: 4px; }
+  .hoja-row-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+
+  .vincula-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; padding-left: 12px; }
+  .vincula-nombre { flex: 1; font-size: 14px; }
+  .vincula-defecto { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--on-surface-variant); }
   .auth-screen {
     min-height: 100dvh;
     display: grid;
@@ -565,6 +581,7 @@
       <h1>Finanzas</h1>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
+      <select class="select hoja-selector" id="hojaSelector" aria-label="Hoja de datos activa" style="display: none;"></select>
       <button class="icon-btn" id="btnConciliarTop" title="Conciliar"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></button>
     </div>
   </header>
@@ -858,6 +875,27 @@
             <button class="btn btn-primary btn-sm" id="adminUserCreate" type="submit">Crear usuario</button>
           </form>
           <div id="adminUsersList" class="body-sm" style="color: var(--on-surface-variant);"></div>
+        </div>
+      </div>
+
+      <div class="bento" style="margin-top: var(--s-4);">
+        <div class="card col-12">
+          <div class="card-h"><h2>Hojas de datos</h2></div>
+          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Cada hoja es un Google Sheet con la estructura Cuentas/Categorías/Transacciones. Los usuarios ven solo las hojas a las que están vinculados.</div>
+          <form id="adminSheetForm" style="display: grid; grid-template-columns: 2fr 1fr auto; gap: var(--s-2); margin-bottom: var(--s-3);">
+            <input class="input" id="adminSheetId" placeholder="ID del spreadsheet (https://docs.google.com/spreadsheets/d/.../edit)" autocomplete="off">
+            <input class="input" id="adminSheetNombre" placeholder="Nombre identificativo" autocomplete="off">
+            <button class="btn btn-primary btn-sm" id="adminSheetCreate" type="submit">Añadir hoja</button>
+          </form>
+          <div id="adminSheetsList" class="body-sm" style="color: var(--on-surface-variant);"></div>
+        </div>
+      </div>
+
+      <div class="bento" style="margin-top: var(--s-4);">
+        <div class="card col-12">
+          <div class="card-h"><h2>Vinculaciones por usuario</h2></div>
+          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Asigna hojas a cada usuario y marca cuál es la que abre por defecto. Los usuarios pueden cambiar entre sus hojas vinculadas desde la cabecera.</div>
+          <div id="adminVinculaciones"></div>
         </div>
       </div>
     </section>
@@ -1369,11 +1407,86 @@ async function cargarUsuariosAdminUI() {
   }
 }
 
+async function cargarHojasAdminUI() {
+  const listEl = $('#adminSheetsList');
+  if (!listEl) return;
+  try {
+    const sheets = await call('listarSpreadsheetsAdmin');
+    if (!Array.isArray(sheets) || !sheets.length) {
+      listEl.textContent = 'No hay hojas registradas. Añade una con su ID de Google Sheets.';
+      return;
+    }
+    listEl.innerHTML = sheets.map(s => {
+      const usuariosTxt = s.usuarios && s.usuarios.length
+        ? s.usuarios.map(escape).join(', ')
+        : '<span style="color:var(--on-surface-variant);">(sin usuarios vinculados)</span>';
+      return `<div class="hoja-row" data-sheet-id="${escape(s.spreadsheet_id)}">
+        <div class="hoja-row-main">
+          <div class="hoja-row-info">
+            <div class="hoja-row-name">${escape(s.nombre)}</div>
+            <div class="hoja-row-id">${escape(s.spreadsheet_id)}</div>
+            ${s.descripcion ? `<div class="hoja-row-desc">${escape(s.descripcion)}</div>` : ''}
+            <div class="hoja-row-users">Usuarios: ${usuariosTxt}</div>
+          </div>
+          <div class="hoja-row-actions">
+            <a class="btn btn-sm btn-outline" href="https://docs.google.com/spreadsheets/d/${escape(s.spreadsheet_id)}/edit" target="_blank" rel="noopener noreferrer">Abrir</a>
+            <button class="btn btn-sm btn-danger" type="button" data-sheet-action="delete">Eliminar hoja</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    listEl.textContent = 'No disponible: ' + (e.message || '');
+  }
+}
+
+async function cargarVinculacionesAdminUI() {
+  const listEl = $('#adminVinculaciones');
+  if (!listEl) return;
+  try {
+    const [vincs, sheets] = await Promise.all([
+      call('listarVinculacionesAdmin'),
+      call('listarSpreadsheetsAdmin')
+    ]);
+    if (!Array.isArray(vincs) || !vincs.length) {
+      listEl.textContent = 'No hay usuarios.';
+      return;
+    }
+    const optsHtml = (sheets || []).map(s => `<option value="${escape(s.spreadsheet_id)}">${escape(s.nombre)}</option>`).join('');
+    listEl.innerHTML = vincs.map(v => {
+      const hojasHtml = (v.hojas || []).map(h => `
+        <div class="vincula-row" data-username="${escape(v.username)}" data-sheet-id="${escape(h.spreadsheet_id)}">
+          <span class="vincula-nombre">${escape(h.nombre)}</span>
+          <label class="vincula-defecto">
+            <input type="radio" name="vinculo-defecto-${escape(v.username)}" data-vincula-action="set-defecto"${h.por_defecto ? ' checked' : ''}>
+            Por defecto
+          </label>
+          <a class="btn btn-sm btn-outline" href="https://docs.google.com/spreadsheets/d/${escape(h.spreadsheet_id)}/edit" target="_blank" rel="noopener noreferrer">Abrir</a>
+          <button class="btn btn-sm btn-danger" type="button" data-vincula-action="desvincular">Quitar</button>
+        </div>`).join('');
+      const sinHojas = hojasHtml ? '' : '<div class="body-sm" style="color:var(--on-surface-variant); padding: 4px 0;">Sin hojas vinculadas.</div>';
+      return `<div class="user-row" data-username="${escape(v.username)}">
+        <div class="user-row-main">
+          <span class="user-row-name">${escape(v.username)}</span>
+          <select class="select" data-vincula-add="${escape(v.username)}" aria-label="Hoja a vincular">
+            <option value="">Añadir hoja…</option>${optsHtml}
+          </select>
+          <button class="btn btn-sm btn-outline" type="button" data-vincula-action="vincular">Vincular</button>
+        </div>
+        ${sinHojas}${hojasHtml}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    listEl.textContent = 'No disponible: ' + (e.message || '');
+  }
+}
+
 async function iniciarAppAutenticada() {
   Estado.bootstrap = normalizarBootstrap(await call('bootstrapBase'));
   const user = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.user) || '?';
   actualizarEntornoUI();
   aplicarRolesUI();
+  actualizarSelectorHoja();
   $('#avatar').textContent = (user[0] || 'U').toUpperCase();
   $('#avatarM').textContent = (user[0] || 'U').toUpperCase();
   $('#userName').textContent = user;
@@ -1382,6 +1495,38 @@ async function iniciarAppAutenticada() {
   go('dashboard');
   sincronizarTransacciones({ render: true, toastOnError: true });
   mostrarApp();
+}
+
+function actualizarSelectorHoja() {
+  const sel = $('#hojaSelector');
+  if (!sel) return;
+  const hojas = (Estado.bootstrap && Estado.bootstrap.hojas) || [];
+  const activa = (Estado.bootstrap && Estado.bootstrap.hojaActivaId) || '';
+  if (hojas.length < 2) {
+    sel.style.display = 'none';
+    sel.innerHTML = '';
+    return;
+  }
+  sel.innerHTML = hojas.map(h =>
+    `<option value="${escape(h.spreadsheet_id)}"${h.spreadsheet_id === activa ? ' selected' : ''}>${escape(h.nombre)}${h.por_defecto ? ' ★' : ''}</option>`
+  ).join('');
+  sel.style.display = '';
+}
+
+async function cambiarHojaActivaUI(spreadsheetId) {
+  if (!spreadsheetId) return;
+  const sel = $('#hojaSelector');
+  const originalLabel = sel ? sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text : '';
+  if (sel) sel.disabled = true;
+  try {
+    await call('cambiarHojaActiva', spreadsheetId);
+    await recargar();
+    toast('Hoja activa: ' + (originalLabel || spreadsheetId));
+  } catch (err) {
+    toast('Error: ' + err.message);
+  } finally {
+    if (sel) sel.disabled = false;
+  }
 }
 
 function aplicarRolesUI() {
@@ -1454,7 +1599,9 @@ function normalizarBootstrap(b) {
     resumen: b.resumen || null,
     sesion: b.sesion || null,
     version: b.version || '',
-    entorno: b.entorno === 'test' ? 'test' : 'production'
+    entorno: b.entorno === 'test' ? 'test' : 'production',
+    hojas: Array.isArray(b.hojas) ? b.hojas : [],
+    hojaActivaId: b.hojaActivaId || ''
   };
 }
 
@@ -1502,6 +1649,8 @@ function renderAdmin() {
     return;
   }
   cargarUsuariosAdminUI();
+  cargarHojasAdminUI();
+  cargarVinculacionesAdminUI();
 }
 
 function renderConfiguracion() {
@@ -2638,6 +2787,7 @@ $('#btnNuevaCuenta').addEventListener('click', () => openCuenta());
 $('#btnNuevaCat').addEventListener('click', () => openCat());
 $('#btnNuevoRec').addEventListener('click', () => openRec());
 $('#btnConciliarTop').addEventListener('click', () => go('conciliar'));
+$('#hojaSelector').addEventListener('change', (e) => cambiarHojaActivaUI(e.target.value));
 $('#dashConciliar').addEventListener('click', () => go('conciliar'));
 $('#conOk').addEventListener('click', doConciliar);
 $('#adminEnvApply').addEventListener('click', cambiarEntornoDesdeUI);
@@ -2786,6 +2936,141 @@ $('#adminUserForm').addEventListener('submit', async (e) => {
     $('#adminNewRol').disabled = false;
   }
 });
+
+// === Admin: hojas de datos (directorio + vinculaciones) ===
+
+$('#adminSheetForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const rawId = ($('#adminSheetId').value || '').trim();
+  const nombre = ($('#adminSheetNombre').value || '').trim();
+  // Acepta URL completa o ID puro (entre /d/ y /edit).
+  const m = rawId.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  const id = m ? m[1] : rawId;
+  if (!id || !nombre) { toast('Pega el enlace o ID y un nombre'); return; }
+  const btn = $('#adminSheetCreate');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Añadiendo...';
+  $('#adminSheetId').disabled = true;
+  $('#adminSheetNombre').disabled = true;
+  try {
+    await call('altaSpreadsheetAdmin', id, nombre, '');
+    $('#adminSheetId').value = '';
+    $('#adminSheetNombre').value = '';
+    toast('Hoja añadida');
+    cargarHojasAdminUI();
+    cargarVinculacionesAdminUI();
+  } catch (err) {
+    toast('Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+    $('#adminSheetId').disabled = false;
+    $('#adminSheetNombre').disabled = false;
+  }
+});
+
+const adminSheetsList = $('#adminSheetsList');
+if (adminSheetsList) {
+  adminSheetsList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-sheet-action="delete"]');
+    if (!btn || !adminSheetsList.contains(btn)) return;
+    const row = btn.closest('.hoja-row');
+    if (!row) return;
+    const sheetId = row.dataset.sheetId || '';
+    await openConfirm({
+      title: 'Eliminar hoja',
+      message: '¿Eliminar la hoja del directorio? Se desvincula de todos los usuarios (no borra el Google Sheet real).',
+      danger: true,
+      confirmLabel: 'Eliminar',
+      onConfirm: async () => {
+        const label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Eliminando...';
+        try {
+          await call('bajaSpreadsheetAdmin', sheetId);
+          toast('Hoja eliminada');
+          cargarHojasAdminUI();
+          cargarVinculacionesAdminUI();
+        } catch (err) {
+          toast('Error: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = label;
+        }
+      }
+    });
+  });
+}
+
+const adminVinculaciones = $('#adminVinculaciones');
+if (adminVinculaciones) {
+  adminVinculaciones.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-vincula-action]');
+    if (!btn) return;
+    const action = btn.dataset.vinculaAction;
+    const userRow = btn.closest('.user-row');
+    if (!userRow) return;
+    const username = userRow.dataset.username || '';
+
+    if (action === 'vincular') {
+      const sel = userRow.querySelector(`[data-vincula-add="${CSS.escape(username)}"]`);
+      if (!sel) return;
+      const sheetId = sel.value;
+      if (!sheetId) { toast('Selecciona una hoja'); return; }
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Vinculando...';
+      try {
+        await call('vincularHojaUsuarioAdmin', username, sheetId, false);
+        toast('Vinculado');
+        cargarVinculacionesAdminUI();
+        cargarHojasAdminUI();
+      } catch (err) {
+        toast('Error: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+      return;
+    }
+    if (action === 'desvincular') {
+      const vincRow = btn.closest('.vincula-row');
+      if (!vincRow) return;
+      const sheetId = vincRow.dataset.sheetId || '';
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Quitando...';
+      try {
+        await call('desvincularHojaUsuarioAdmin', username, sheetId);
+        toast('Vinculación eliminada');
+        cargarVinculacionesAdminUI();
+        cargarHojasAdminUI();
+      } catch (err) {
+        toast('Error: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+      return;
+    }
+  });
+  adminVinculaciones.addEventListener('change', async (e) => {
+    const radio = e.target.closest('[data-vincula-action="set-defecto"]');
+    if (!radio || !radio.checked) return;
+    const vincRow = radio.closest('.vincula-row');
+    if (!vincRow) return;
+    const username = vincRow.dataset.username || (vincRow.closest('.user-row') || {}).dataset.username || '';
+    const sheetId = vincRow.dataset.sheetId || '';
+    if (!username || !sheetId) return;
+    try {
+      await call('setHojaPorDefectoAdmin', username, sheetId);
+      toast('Por defecto actualizado');
+      cargarVinculacionesAdminUI();
+    } catch (err) {
+      toast('Error: ' + err.message);
+      cargarVinculacionesAdminUI();
+    }
+  });
+}
 
 const adminUsersList = $('#adminUsersList');
 if (adminUsersList) {

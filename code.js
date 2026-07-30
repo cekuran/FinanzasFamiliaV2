@@ -13,7 +13,9 @@ const SCHEMA = {
 };
 
 const AUTH_SCHEMA = {
-  Usuarios: ['username','password_hash','salt','rol','activo','fecha_creacion']
+  Usuarios: ['username','password_hash','salt','rol','activo','fecha_creacion'],
+  Spreadsheets: ['spreadsheet_id','nombre','descripcion','fecha_alta'],
+  HojasUsuarios: ['username','spreadsheet_id','por_defecto','fecha_alta']
 };
 const ROLES = { ADMIN: 'admin', BASICO: 'basico' };
 
@@ -64,6 +66,9 @@ const AUTH_SHEET_ID_PROP_BY_ENV = {
 // bajo USER_DEPLOYING devuelve la misma clave para todos los visitantes y
 // filtraba los datos del deployer.
 let _currentToken = '';
+// Hoja activa resuelta por _authadmin a partir de HojasUsuarios; las funciones
+// de datos la consultan vía ssActiva_() en vez del sheet fijo por entorno.
+let _currentSheetId = '';
 
 function tokenMapKey_(token) {
   return PROP_TOKEN_PREFIX + normalizarEntorno_(entornoActual_()) + '_' + String(token || '').trim();
@@ -99,6 +104,8 @@ function _authadmin(token, fnName, ...args) {
   const username = validarTokenSesion_(token);
   if (!username) throw new Error('No autenticado');
   _currentToken = String(token || '').trim();
+  try { _currentSheetId = resolverHojaActivaId_(username); }
+  catch (e) { _currentSheetId = ''; }
   const fn = globalThis[fnName];
   if (typeof fn !== 'function') throw new Error('Función no encontrada: ' + fnName);
   return fn.apply(null, args);
@@ -296,6 +303,9 @@ function eliminarUsuarioAdmin(username) {
   }
   rows.splice(idx, 1);
   escribirUsuariosAuth_(rows);
+  // Limpiar vinculaciones del usuario eliminado para no dejar huérfanas.
+  const links = leerHojasUsuarios_().filter(l => String(l.username || '').trim().toLowerCase() !== user.toLowerCase());
+  escribirHojasUsuarios_(links);
   return { ok: true, user: user };
 }
 
@@ -407,6 +417,16 @@ function ss_() {
   return ss;
 }
 
+// Hoja de datos del usuario activo. Si _currentSheetId está resuelto (por
+// _authadmin), abre esa; en caso contrario cae al sheet por entorno.
+function ssActiva_() {
+  if (_currentSheetId) {
+    try { return SpreadsheetApp.openById(_currentSheetId); }
+    catch (e) { /* id inválido o revocado: fallback */ }
+  }
+  return ss_();
+}
+
 function authSs_() {
   const env = entornoActual_();
   const configuredId = obtenerAuthSheetIdConfigurado_(env);
@@ -495,6 +515,276 @@ function leerUsuariosLegacyData_() {
   }
 }
 
+// ───────── Auth sheet genérico (Spreadsheets + HojasUsuarios) ─────────
+// ponytail: estas tablas viven en el auth sheet, no en la hoja de datos
+// por usuario. Se leen/escriben como filas planas; el shape lo define
+// AUTH_SCHEMA[nombre].
+
+function asegurarAuthHojaGenerica_(nombre) {
+  const ss = authSs_();
+  const cab = AUTH_SCHEMA[nombre];
+  let h = ss.getSheetByName(nombre);
+  if (!h) {
+    h = ss.insertSheet(nombre);
+    h.getRange(1, 1, 1, cab.length).setValues([cab]).setFontWeight('bold');
+    h.setFrozenRows(1);
+  } else if (h.getLastRow() === 0) {
+    h.getRange(1, 1, 1, cab.length).setValues([cab]).setFontWeight('bold');
+    h.setFrozenRows(1);
+  }
+  return h;
+}
+
+function leerAuthHojaGenerica_(nombre) {
+  const h = asegurarAuthHojaGenerica_(nombre);
+  const valores = h.getDataRange().getValues();
+  if (valores.length < 2) return [];
+  const cab = valores[0];
+  return valores.slice(1).map(fila => {
+    const o = {};
+    cab.forEach((k, i) => (o[k] = fila[i]));
+    return o;
+  });
+}
+
+function escribirAuthHojaGenerica_(nombre, filas) {
+  const h = asegurarAuthHojaGenerica_(nombre);
+  const cab = AUTH_SCHEMA[nombre];
+  h.clearContents();
+  const matriz = [cab].concat(filas.map(f => cab.map(k => f[k] != null ? f[k] : '')));
+  if (matriz.length) h.getRange(1, 1, matriz.length, cab.length).setValues(matriz);
+  h.setFrozenRows(1);
+}
+
+function leerSpreadsheets_() { return leerAuthHojaGenerica_('Spreadsheets'); }
+function escribirSpreadsheets_(filas) { escribirAuthHojaGenerica_('Spreadsheets', filas); }
+function leerHojasUsuarios_() { return leerAuthHojaGenerica_('HojasUsuarios'); }
+function escribirHojasUsuarios_(filas) { escribirAuthHojaGenerica_('HojasUsuarios', filas); }
+
+// Resuelve la hoja activa del usuario actual con la siguiente prioridad:
+// 1) Hoja por defecto explícita en HojasUsuarios
+// 2) Primera hoja vinculada
+// 3) Hoja de entorno (SHEET_ID_PRODUCTION/TEST legacy) — auto-vinculada al usuario
+//    si no tiene otras
+function resolverHojaActivaId_(username) {
+  username = String(username || '').trim();
+  if (!username) return '';
+  const links = leerHojasUsuarios_().filter(l => String(l.username || '').trim().toLowerCase() === username.toLowerCase());
+  const defecto = links.find(l => String(l.por_defecto) === 'true' || String(l.por_defecto) === true);
+  if (defecto) return String(defecto.spreadsheet_id);
+  if (links.length) return String(links[0].spreadsheet_id);
+  // Auto-vincular al sheet por defecto del entorno (migración suave).
+  const env = entornoActual_();
+  const envId = obtenerSheetIdConfigurado_(env);
+  if (envId) {
+    vincularHojaUsuarioInternal_(username, envId, true);
+    return envId;
+  }
+  return '';
+}
+
+function vincularHojaUsuarioInternal_(username, spreadsheetId, porDefecto) {
+  const filas = leerHojasUsuarios_();
+  const idx = filas.findIndex(l =>
+    String(l.username || '').trim().toLowerCase() === String(username).toLowerCase() &&
+    String(l.spreadsheet_id || '') === String(spreadsheetId)
+  );
+  if (idx >= 0) return filas[idx];
+  filas.push({
+    username: username,
+    spreadsheet_id: spreadsheetId,
+    por_defecto: !!porDefecto,
+    fecha_alta: isoAhora_()
+  });
+  escribirHojasUsuarios_(filas);
+  return filas[filas.length - 1];
+}
+
+// ───────── CRUD admin: Spreadsheets y vinculaciones ─────────
+
+function listarSpreadsheetsAdmin() {
+  requireAdmin_();
+  const sheets = leerSpreadsheets_();
+  const links = leerHojasUsuarios_();
+  return sheets.map(s => {
+    const vinculados = links.filter(l => String(l.spreadsheet_id) === String(s.spreadsheet_id));
+    return {
+      spreadsheet_id: String(s.spreadsheet_id),
+      nombre: String(s.nombre || ''),
+      descripcion: String(s.descripcion || ''),
+      fecha_alta: s.fecha_alta || '',
+      usuarios: vinculados.map(l => String(l.username))
+    };
+  });
+}
+
+function altaSpreadsheetAdmin(spreadsheetId, nombre, descripcion) {
+  requireAdmin_();
+  const id = String(spreadsheetId || '').trim();
+  const nom = String(nombre || '').trim();
+  if (!id) throw new Error('Indica el spreadsheet ID');
+  if (!nom) throw new Error('Indica un nombre');
+  if (!/^[a-zA-Z0-9_-]{20,}$/.test(id)) throw new Error('El ID no parece un spreadsheet ID de Google');
+  // Validación temprana: intenta abrir. Si no es accesible, falla aquí.
+  try { SpreadsheetApp.openById(id); }
+  catch (e) { throw new Error('No se puede abrir el spreadsheet: ' + (e && e.message || e)); }
+  const filas = leerSpreadsheets_();
+  if (filas.some(s => String(s.spreadsheet_id) === id)) throw new Error('Ese spreadsheet ya está registrado');
+  filas.push({
+    spreadsheet_id: id,
+    nombre: nom,
+    descripcion: String(descripcion || '').trim(),
+    fecha_alta: isoAhora_()
+  });
+  escribirSpreadsheets_(filas);
+  return { ok: true, spreadsheet_id: id, nombre: nom };
+}
+
+function bajaSpreadsheetAdmin(spreadsheetId) {
+  requireAdmin_();
+  const id = String(spreadsheetId || '').trim();
+  if (!id) throw new Error('Indica el spreadsheet ID');
+  const sheets = leerSpreadsheets_();
+  if (!sheets.some(s => String(s.spreadsheet_id) === id)) throw new Error('Spreadsheet no registrado');
+  const links = leerHojasUsuarios_().filter(l => String(l.spreadsheet_id) !== id);
+  escribirHojasUsuarios_(links);
+  escribirSpreadsheets_(sheets.filter(s => String(s.spreadsheet_id) !== id));
+  return { ok: true };
+}
+
+function listarVinculacionesAdmin() {
+  requireAdmin_();
+  const sheets = leerSpreadsheets_();
+  const porId = {};
+  sheets.forEach(s => { porId[String(s.spreadsheet_id)] = s; });
+  const users = leerUsuariosAuth_().map(u => String(u.username || '').trim()).filter(Boolean);
+  return users.map(username => {
+    const links = leerHojasUsuarios_().filter(l => String(l.username || '').trim().toLowerCase() === username.toLowerCase());
+    return {
+      username: username,
+      hojas: links.map(l => ({
+        spreadsheet_id: String(l.spreadsheet_id),
+        nombre: (porId[String(l.spreadsheet_id)] || {}).nombre || '(sin nombre)',
+        por_defecto: String(l.por_defecto) === 'true' || l.por_defecto === true
+      }))
+    };
+  });
+}
+
+function vincularHojaUsuarioAdmin(username, spreadsheetId, porDefecto) {
+  requireAdmin_();
+  const user = String(username || '').trim();
+  const id = String(spreadsheetId || '').trim();
+  if (!user) throw new Error('Indica el usuario');
+  if (!id) throw new Error('Indica el spreadsheet ID');
+  if (!leerUsuariosAuth_().some(u => String(u.username || '').trim().toLowerCase() === user.toLowerCase())) {
+    throw new Error('Usuario no existe');
+  }
+  if (!leerSpreadsheets_().some(s => String(s.spreadsheet_id) === id)) {
+    throw new Error('Spreadsheet no registrado; primero añádelo en el directorio');
+  }
+  const quiereDefecto = porDefecto === true || porDefecto === 'true';
+  const links = leerHojasUsuarios_();
+  const existe = links.find(l =>
+    String(l.username || '').trim().toLowerCase() === user.toLowerCase() &&
+    String(l.spreadsheet_id) === id
+  );
+  if (existe) throw new Error('Ese usuario ya tiene vinculada esa hoja');
+  if (quiereDefecto) {
+    // Solo puede haber una hoja por defecto por usuario; desmarca las demás.
+    links.forEach(l => {
+      if (String(l.username || '').trim().toLowerCase() === user.toLowerCase()) l.por_defecto = false;
+    });
+  } else if (!links.some(l => String(l.username || '').trim().toLowerCase() === user.toLowerCase())) {
+    // Primera hoja del usuario → se marca por defecto automáticamente.
+    porDefecto = true;
+  }
+  links.push({
+    username: user,
+    spreadsheet_id: id,
+    por_defecto: porDefecto === true || porDefecto === 'true',
+    fecha_alta: isoAhora_()
+  });
+  escribirHojasUsuarios_(links);
+  return { ok: true, username: user, spreadsheet_id: id, por_defecto: porDefecto };
+}
+
+function desvincularHojaUsuarioAdmin(username, spreadsheetId) {
+  requireAdmin_();
+  const user = String(username || '').trim();
+  const id = String(spreadsheetId || '').trim();
+  if (!user || !id) throw new Error('Faltan parámetros');
+  const links = leerHojasUsuarios_();
+  const restantes = links.filter(l => !(
+    String(l.username || '').trim().toLowerCase() === user.toLowerCase() &&
+    String(l.spreadsheet_id) === id
+  ));
+  if (restantes.length === links.length) throw new Error('Vinculación no encontrada');
+  // Si desvinculamos la hoja por defecto, promover otra del mismo usuario.
+  const eraDefecto = links.find(l =>
+    String(l.username || '').trim().toLowerCase() === user.toLowerCase() &&
+    String(l.spreadsheet_id) === id &&
+    (String(l.por_defecto) === 'true' || l.por_defecto === true)
+  );
+  escribirHojasUsuarios_(restantes);
+  if (eraDefecto) {
+    const otra = restantes.find(l => String(l.username || '').trim().toLowerCase() === user.toLowerCase());
+    if (otra) { otra.por_defecto = true; escribirHojasUsuarios_(restantes); }
+  }
+  return { ok: true };
+}
+
+function setHojaPorDefectoAdmin(username, spreadsheetId) {
+  requireAdmin_();
+  const user = String(username || '').trim();
+  const id = String(spreadsheetId || '').trim();
+  if (!user || !id) throw new Error('Faltan parámetros');
+  const links = leerHojasUsuarios_();
+  const target = links.find(l =>
+    String(l.username || '').trim().toLowerCase() === user.toLowerCase() &&
+    String(l.spreadsheet_id) === id
+  );
+  if (!target) throw new Error('El usuario no tiene vinculada esa hoja');
+  links.forEach(l => {
+    if (String(l.username || '').trim().toLowerCase() === user.toLowerCase()) l.por_defecto = false;
+  });
+  target.por_defecto = true;
+  escribirHojasUsuarios_(links);
+  return { ok: true };
+}
+
+function listarMisHojas() {
+  const username = requireUsuario_();
+  return listarHojasDelUsuario_(username);
+}
+
+function cambiarHojaActiva(spreadsheetId) {
+  const username = requireUsuario_();
+  const id = String(spreadsheetId || '').trim();
+  if (!id) throw new Error('Indica la hoja');
+  const links = leerHojasUsuarios_();
+  const existe = links.some(l =>
+    String(l.username || '').trim().toLowerCase() === username.toLowerCase() &&
+    String(l.spreadsheet_id) === id
+  );
+  if (!existe) throw new Error('No tienes vinculada esa hoja');
+  // Marcar como por_defecto: la elección "activa" del usuario se convierte en
+  // su próxima sesión por defecto. El admin puede sobreescribir después.
+  links.forEach(l => {
+    if (String(l.username || '').trim().toLowerCase() === username.toLowerCase()) l.por_defecto = false;
+  });
+  const target = links.find(l =>
+    String(l.username || '').trim().toLowerCase() === username.toLowerCase() &&
+    String(l.spreadsheet_id) === id
+  );
+  if (target) {
+    target.por_defecto = true;
+    escribirHojasUsuarios_(links);
+  }
+  _currentSheetId = id;
+  return { ok: true, hojaActivaId: id };
+}
+
 function obtenerConfigSheets() {
   const env = entornoActual_();
   return {
@@ -574,7 +864,7 @@ function isoHoy_() { return new Date().toISOString().slice(0, 10); }
 function isoAhora_() { return new Date().toISOString(); }
 
 function asegurarHoja(nombre) {
-  const ss = ss_();
+  const ss = ssActiva_();
   let h = ss.getSheetByName(nombre);
   if (!h) {
     h = ss.insertSheet(nombre);
@@ -596,7 +886,7 @@ function asegurarEsquema() {
 function migrarEsquema() {
   HOJAS.forEach(asegurarHoja);
   Object.keys(SCHEMA).forEach(nombre => {
-    const h = ss_().getSheetByName(nombre);
+    const h = ssActiva_().getSheetByName(nombre);
     if (!h) return;
     const cab = h.getRange(1, 1, 1, h.getLastColumn()).getValues()[0];
     const legacyName = ['o','wner_email'].join('');
@@ -616,14 +906,14 @@ function migrarEsquema() {
 // que cuando se escribieron.
 function normalizarValor_(v) {
   if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v)) {
-    return Utilities.formatDate(v, ss_().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+    return Utilities.formatDate(v, ssActiva_().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
   }
   return v;
 }
 
 function leerHoja(nombre) {
   asegurarHoja(nombre);
-  const h = ss_().getSheetByName(nombre);
+  const h = ssActiva_().getSheetByName(nombre);
   const valores = h.getDataRange().getValues();
   if (valores.length < 2) return [];
   const cab = valores[0];
@@ -635,7 +925,7 @@ function leerHoja(nombre) {
 }
 
 function escribirHoja(nombre, filas) {
-  const h = ss_().getSheetByName(nombre);
+  const h = ssActiva_().getSheetByName(nombre);
   const cab = SCHEMA[nombre];
   h.clearContents();
   const matriz = [cab].concat(filas.map(f => cab.map(k => f[k] != null ? f[k] : '')));
@@ -709,12 +999,30 @@ function bootstrapBase() {
     sesion: { user: owner, rol: currentRol_() || ROLES.BASICO },
     entorno: entornoActual_(),
     version: PropertiesService.getScriptProperties().getProperty('VERSION') || '',
+    hojas: listarHojasDelUsuario_(owner),
+    hojaActivaId: _currentSheetId || resolverHojaActivaId_(owner),
     cuentas: obtenerCuentas(),
     categorias: obtenerCategorias(),
     recurrentes: obtenerRecurrentes(),
     presupuestos: obtenerPresupuestos(),
     resumen: obtenerResumen()
   };
+}
+
+function listarHojasDelUsuario_(username) {
+  const links = leerHojasUsuarios_().filter(l => String(l.username || '').trim().toLowerCase() === String(username || '').trim().toLowerCase());
+  const todas = leerSpreadsheets_();
+  const porId = {};
+  todas.forEach(s => { porId[String(s.spreadsheet_id)] = s; });
+  return links.map(l => {
+    const meta = porId[String(l.spreadsheet_id)] || {};
+    return {
+      spreadsheet_id: String(l.spreadsheet_id),
+      nombre: meta.nombre || '(sin nombre)',
+      descripcion: meta.descripcion || '',
+      por_defecto: String(l.por_defecto) === 'true' || l.por_defecto === true
+    };
+  });
 }
 
 function incluir(html) { return HtmlService.createHtmlOutputFromFile(html).getContent(); }
@@ -724,7 +1032,7 @@ function obtenerCuentas() {
   const owner = username_();
   const cuentas = leerHoja('Cuentas').filter(c => c.owner === owner && !c.oculta);
   const txs = leerHoja('Transacciones');
-  const fmtMes = d => Utilities.formatDate(d, ss_().getSpreadsheetTimeZone(), 'yyyy-MM');
+  const fmtMes = d => Utilities.formatDate(d, ssActiva_().getSpreadsheetTimeZone(), 'yyyy-MM');
 
   const top = cuentas.filter(c => !c.parent_id);
   return top.map(c => {
@@ -1006,7 +1314,7 @@ function parseFecha(s) {
   const d = new Date(s);
   return isNaN(d) ? null : d;
 }
-function iso_(d) { return Utilities.formatDate(new Date(d), ss_().getSpreadsheetTimeZone(), 'yyyy-MM-dd'); }
+function iso_(d) { return Utilities.formatDate(new Date(d), ssActiva_().getSpreadsheetTimeZone(), 'yyyy-MM-dd'); }
 
 // Reparto destino: array de {subcuenta_id, importe} guardado como JSON en
 // Transacciones.reparto_destino. Acepta string, array o null; devuelve array
@@ -1564,4 +1872,154 @@ function __selfTest() {
   eliminarCuenta(destParent.id);
 
   return 'ok ' + cuentas.length + ' cuentas, ' + cat.length + ' categorías, diferencia=' + conciliado.diferencia;
+}
+
+// ───────── Self-test routing de hojas (auth) ─────────
+// Cubre resolverHojaActivaId_, vincularHojaUsuarioAdmin (duplicado, demote,
+// auto-defecto), desvincularHojaUsuarioAdmin (promoción de defecto) y
+// cambiarHojaActiva (persistencia + rechazo). Snapshot/restore al final para
+// no dejar rastro en las páginas auth aunque un assert falle. Las pruebas
+// tocan solo las hojas de auth, no SpreadsheetApp.openById: los IDs son fake.
+function __selfTestHojas() {
+  const owner = currentUser_();
+  if (!owner) throw new Error('No autenticado');
+
+  const snapSpreads = leerSpreadsheets_();
+  const snapLinks = leerHojasUsuarios_();
+  const snapUsers = leerUsuariosAuth_();
+
+  try {
+    const tag = Utilities.getUuid().replace(/-/g, '').slice(0, 12);
+    const idA = 'fake_sheet_' + tag + '_a';
+    const idB = 'fake_sheet_' + tag + '_b';
+    const idC = 'fake_sheet_' + tag + '_c';
+    const fakeUser = '__selftest_' + tag;
+
+    const spreads = leerSpreadsheets_().slice();
+    spreads.push({ spreadsheet_id: idA, nombre: 'fakeA', descripcion: '', fecha_alta: isoAhora_() });
+    spreads.push({ spreadsheet_id: idB, nombre: 'fakeB', descripcion: '', fecha_alta: isoAhora_() });
+    spreads.push({ spreadsheet_id: idC, nombre: 'fakeC', descripcion: '', fecha_alta: isoAhora_() });
+    escribirSpreadsheets_(spreads);
+
+    // Sembrar un usuario fake vía escritura directa para sortear las
+    // comprobaciones internas de vincularHojaUsuarioAdmin.
+    const users = leerUsuariosAuth_().slice();
+    if (!buscarUsuario_(fakeUser)) {
+      const salt = Utilities.getUuid().replace(/-/g, '');
+      users.push({
+        username: fakeUser,
+        password_hash: passwordHash_('selftest1234', salt),
+        salt: salt, rol: ROLES.BASICO, activo: true, fecha_creacion: isoAhora_()
+      });
+      escribirUsuariosAuth_(users);
+    }
+
+    let mensajeError;
+
+    // 1. resolverHojaActivaId_: con varias hojas y sin defecto, devuelve la primera.
+    limpiarLinksDe_(fakeUser);
+    vincularHojaUsuarioInternal_(fakeUser, idA, false);
+    vincularHojaUsuarioInternal_(fakeUser, idB, false);
+    if (resolverHojaActivaId_(fakeUser) !== idA) {
+      throw new Error('Sin defecto debe devolver la primera vinculada');
+    }
+    // 2. resolverHojaActivaId_: prevalece la marcada como defecto.
+    marcarDefecto_(fakeUser, idB);
+    if (resolverHojaActivaId_(fakeUser) !== idB) {
+      throw new Error('Con defecto debe prevalecer la marcada');
+    }
+    // 3. resolverHojaActivaId_: con una sola hoja, esa es la activa.
+    limpiarLinksDe_(fakeUser);
+    vincularHojaUsuarioInternal_(fakeUser, idA, false);
+    if (resolverHojaActivaId_(fakeUser) !== idA) {
+      throw new Error('Única hoja debe ser la activa');
+    }
+
+    // 4. vincularHojaUsuarioAdmin rechaza duplicado explícito.
+    mensajeError = null;
+    try { vincularHojaUsuarioAdmin(fakeUser, idA, false); }
+    catch (e) { mensajeError = e.message; }
+    if (!mensajeError || !/ya tiene vinculada/.test(mensajeError)) {
+      throw new Error('Debió rechazar duplicado: ' + mensajeError);
+    }
+
+    // 5. vincularHojaUsuarioAdmin como defecto demota el defecto anterior.
+    limpiarLinksDe_(fakeUser);
+    vincularHojaUsuarioInternal_(fakeUser, idA, true);
+    vincularHojaUsuarioAdmin(fakeUser, idB, true);
+    const links5 = linksDe_(fakeUser);
+    if (!links5.find(l => l.spreadsheet_id === idB && l.por_defecto)) {
+      throw new Error('Nueva hoja debe haber quedado como defecto');
+    }
+    if (links5.find(l => l.spreadsheet_id === idA && l.por_defecto)) {
+      throw new Error('Defecto anterior no fue desmarcado');
+    }
+
+    // 6. La primera vinculación del usuario se marca defecto automáticamente.
+    limpiarLinksDe_(fakeUser);
+    vincularHojaUsuarioAdmin(fakeUser, idC, false);
+    const links6 = linksDe_(fakeUser);
+    if (links6.length !== 1 || !links6[0].por_defecto) {
+      throw new Error('Primera vinculación debe pasar a defecto auto');
+    }
+
+    // 7. desvincularHojaUsuarioAdmin promueve otra hoja al quitar el defecto.
+    limpiarLinksDe_(fakeUser);
+    vincularHojaUsuarioInternal_(fakeUser, idA, true);
+    vincularHojaUsuarioInternal_(fakeUser, idB, false);
+    desvincularHojaUsuarioAdmin(fakeUser, idA);
+    const links7 = linksDe_(fakeUser);
+    if (links7.length !== 1) throw new Error('Debe quedar una sola tras desvinculación');
+    if (links7[0].spreadsheet_id !== idB || !links7[0].por_defecto) {
+      throw new Error('Hoja restante debe haber sido promovida a defecto');
+    }
+
+    // 8. cambiarHojaActiva persiste por_defecto: resolverHojaActivaId_ la ve.
+    limpiarLinksDe_(owner);
+    vincularHojaUsuarioInternal_(owner, idA, true);
+    vincularHojaUsuarioInternal_(owner, idB, false);
+    cambiarHojaActiva(idB);
+    if (resolverHojaActivaId_(owner) !== idB) {
+      throw new Error('cambiarHojaActiva no actualizó el defecto');
+    }
+
+    // 9. cambiarHojaActiva rechaza IDs no vinculados al usuario.
+    mensajeError = null;
+    const idRara = 'fake_no_vinculado_' + Utilities.getUuid().replace(/-/g, '');
+    try { cambiarHojaActiva(idRara); }
+    catch (e) { mensajeError = e.message; }
+    if (!mensajeError || !/No tienes vinculada/.test(mensajeError)) {
+      throw new Error('Debió rechazar hoja no vinculada: ' + mensajeError);
+    }
+
+    return 'ok — 9 casos de routing de hojas validados';
+  } finally {
+    escribirSpreadsheets_(snapSpreads);
+    escribirHojasUsuarios_(snapLinks);
+    escribirUsuariosAuth_(snapUsers);
+    _currentSheetId = '';
+  }
+}
+
+function limpiarLinksDe_(username) {
+  const restantes = leerHojasUsuarios_().filter(l =>
+    String(l.username || '').trim().toLowerCase() !== String(username || '').trim().toLowerCase());
+  escribirHojasUsuarios_(restantes);
+}
+
+function linksDe_(username) {
+  const target = String(username || '').trim().toLowerCase();
+  return leerHojasUsuarios_().filter(l => String(l.username || '').trim().toLowerCase() === target);
+}
+
+function marcarDefecto_(username, spreadsheetId) {
+  const target = String(username || '').trim().toLowerCase();
+  const sid = String(spreadsheetId);
+  const links = leerHojasUsuarios_();
+  links.forEach(l => {
+    if (String(l.username || '').trim().toLowerCase() === target) {
+      l.por_defecto = String(l.spreadsheet_id) === sid;
+    }
+  });
+  escribirHojasUsuarios_(links);
 }
