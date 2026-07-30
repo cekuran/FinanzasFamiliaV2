@@ -362,6 +362,8 @@
   .bn-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 12px; border-radius: var(--r-md); color: var(--on-surface-variant); font-size: 11px; font-weight: 600; }
   .bn-item.is-active { color: var(--primary); background: var(--primary-container); color: var(--on-primary-container); }
   .bn-item .ico { width: 22px; height: 22px; }
+  /* ponytail: 7 items + label no caben en <640px; Admin queda fuera del viewport. font-size:0 oculta el text node sin tocar el SVG. */
+  @media (max-width: 640px) { .bn-item { font-size: 0; padding: 8px 6px; } }
 
   .fab { position: fixed; right: 24px; bottom: calc(88px + env(safe-area-inset-bottom, 0)); z-index: 40; width: 56px; height: 56px; border-radius: var(--r-full); background: var(--primary); color: var(--on-primary); display: grid; place-items: center; box-shadow: var(--shadow-pop); transition: transform 0.15s; }
   .fab:hover { transform: scale(1.05); }
