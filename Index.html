@@ -353,9 +353,6 @@
   .progress-fill.warn { background: var(--amber); }
   .progress-fill.danger { background: var(--error); }
 
-  /* === Hoja selector (header) === */
-  .hoja-selector { width: auto; min-width: 0; max-width: 180px; padding: 8px 12px; font-size: 13px; border-radius: var(--r-full); }
-
   /* === Bottom nav === */
   .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; background: var(--surface-container-lowest); border-top: 1px solid var(--surface-container); display: flex; justify-content: space-around; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0)); }
   @media (min-width: 900px) { .bottom-nav { display: none; } }
@@ -581,7 +578,6 @@
       <h1>Finanzas</h1>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
-      <select class="select hoja-selector" id="hojaSelector" aria-label="Hoja de datos activa" style="display: none;"></select>
       <button class="icon-btn" id="btnConciliarTop" title="Conciliar"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg></button>
     </div>
   </header>
@@ -913,6 +909,11 @@
             <input class="input" id="cfgPassNueva2" type="password" placeholder="Repite la nueva contraseña" autocomplete="new-password" required>
             <button class="btn btn-primary btn-sm" id="cfgPassSubmit" type="submit">Actualizar contraseña</button>
           </form>
+        </div>
+        <div class="card col-6">
+          <div class="card-h"><h2>Hoja activa</h2></div>
+          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Spreadsheet de datos que usa actualmente este usuario.</div>
+          <select class="select" id="cfgHojaSelect" aria-label="Hoja de datos activa"></select>
         </div>
       </div>
     </section>
@@ -1480,24 +1481,24 @@ async function iniciarAppAutenticada() {
 }
 
 function actualizarSelectorHoja() {
-  const sel = $('#hojaSelector');
+  const sel = $('#cfgHojaSelect');
   if (!sel) return;
   const hojas = (Estado.bootstrap && Estado.bootstrap.hojas) || [];
   const activa = (Estado.bootstrap && Estado.bootstrap.hojaActivaId) || '';
-  if (hojas.length < 2) {
-    sel.style.display = 'none';
-    sel.innerHTML = '';
+  if (!hojas.length) {
+    sel.innerHTML = '<option value="">— Sin hojas vinculadas —</option>';
+    sel.disabled = true;
     return;
   }
   sel.innerHTML = hojas.map(h =>
     `<option value="${escape(h.spreadsheet_id)}"${h.spreadsheet_id === activa ? ' selected' : ''}>${escape(h.nombre)}${h.por_defecto ? ' ★' : ''}</option>`
   ).join('');
-  sel.style.display = '';
+  sel.disabled = false;
 }
 
 async function cambiarHojaActivaUI(spreadsheetId) {
   if (!spreadsheetId) return;
-  const sel = $('#hojaSelector');
+  const sel = $('#cfgHojaSelect');
   const originalLabel = sel ? sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text : '';
   if (sel) sel.disabled = true;
   try {
@@ -2769,7 +2770,7 @@ $('#btnNuevaCuenta').addEventListener('click', () => openCuenta());
 $('#btnNuevaCat').addEventListener('click', () => openCat());
 $('#btnNuevoRec').addEventListener('click', () => openRec());
 $('#btnConciliarTop').addEventListener('click', () => go('conciliar'));
-$('#hojaSelector').addEventListener('change', (e) => cambiarHojaActivaUI(e.target.value));
+$('#cfgHojaSelect').addEventListener('change', (e) => cambiarHojaActivaUI(e.target.value));
 $('#dashConciliar').addEventListener('click', () => go('conciliar'));
 $('#conOk').addEventListener('click', doConciliar);
 
