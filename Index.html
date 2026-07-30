@@ -456,6 +456,9 @@
   .hoja-row-desc { font-size: 13px; color: var(--on-surface-variant); margin-top: 2px; }
   .hoja-row-users { font-size: 13px; margin-top: 4px; }
   .hoja-row-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  .hoja-row-rename { display: none; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 4px; }
+  .hoja-row-rename.is-open { display: flex; }
+  .hoja-row-rename .input { flex: 1 1 180px; min-width: 180px; padding: 8px 10px; font-size: 14px; }
 
   .vincula-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; padding-left: 12px; }
   .vincula-nombre { flex: 1; font-size: 14px; }
@@ -1438,8 +1441,14 @@ async function cargarHojasAdminUI() {
           </div>
           <div class="hoja-row-actions">
             <a class="btn btn-sm btn-outline" href="https://docs.google.com/spreadsheets/d/${escape(s.spreadsheet_id)}/edit" target="_blank" rel="noopener noreferrer">Abrir</a>
+            <button class="btn btn-sm btn-outline" type="button" data-sheet-action="rename">Renombrar</button>
             <button class="btn btn-sm btn-danger" type="button" data-sheet-action="delete">Eliminar hoja</button>
           </div>
+        </div>
+        <div class="hoja-row-rename">
+          <input class="input" type="text" value="${escape(s.nombre)}" data-sheet-rename-input aria-label="Nuevo nombre">
+          <button class="btn btn-sm btn-primary" type="button" data-sheet-action="rename-save">Guardar</button>
+          <button class="btn btn-sm btn-secondary" type="button" data-sheet-action="rename-cancel">Cancelar</button>
         </div>
       </div>`;
     }).join('');
@@ -2937,33 +2946,67 @@ $('#adminSheetForm').addEventListener('submit', async (e) => {
 const adminSheetsList = $('#adminSheetsList');
 if (adminSheetsList) {
   adminSheetsList.addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-sheet-action="delete"]');
+    const btn = e.target.closest('[data-sheet-action]');
     if (!btn || !adminSheetsList.contains(btn)) return;
     const row = btn.closest('.hoja-row');
     if (!row) return;
     const sheetId = row.dataset.sheetId || '';
-    await openConfirm({
-      title: 'Eliminar hoja',
-      message: '¿Eliminar la hoja del directorio? Se desvincula de todos los usuarios (no borra el Google Sheet real).',
-      danger: true,
-      confirmLabel: 'Eliminar',
-      onConfirm: async () => {
-        const label = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = 'Eliminando...';
-        try {
-          await call('bajaSpreadsheetAdmin', sheetId);
-          toast('Hoja eliminada');
-          cargarHojasAdminUI();
-          cargarUsuariosAdminUI();
-          poblarHojasNuevoUsuarioUI();
-        } catch (err) {
-          toast('Error: ' + err.message);
-          btn.disabled = false;
-          btn.textContent = label;
-        }
+    const action = btn.dataset.sheetAction;
+    const renameBox = row.querySelector('.hoja-row-rename');
+    const renameInput = row.querySelector('[data-sheet-rename-input]');
+
+    if (action === 'rename') {
+      renameBox.classList.add('is-open');
+      if (renameInput) { renameInput.focus(); renameInput.select(); }
+      return;
+    }
+    if (action === 'rename-cancel') {
+      renameBox.classList.remove('is-open');
+      return;
+    }
+    if (action === 'rename-save') {
+      const nuevoNombre = (renameInput && renameInput.value || '').trim();
+      if (!nuevoNombre) { toast('Indica un nombre'); return; }
+      btn.disabled = true;
+      const label = btn.textContent;
+      btn.textContent = 'Guardando...';
+      try {
+        await call('renombrarSpreadsheetAdmin', sheetId, nuevoNombre);
+        toast('Hoja renombrada');
+        cargarHojasAdminUI();
+        cargarUsuariosAdminUI();
+        poblarHojasNuevoUsuarioUI();
+      } catch (err) {
+        toast('Error: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = label;
       }
-    });
+      return;
+    }
+    if (action === 'delete') {
+      await openConfirm({
+        title: 'Eliminar hoja',
+        message: '¿Eliminar la hoja del directorio? Se desvincula de todos los usuarios (no borra el Google Sheet real).',
+        danger: true,
+        confirmLabel: 'Eliminar',
+        onConfirm: async () => {
+          const label = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = 'Eliminando...';
+          try {
+            await call('bajaSpreadsheetAdmin', sheetId);
+            toast('Hoja eliminada');
+            cargarHojasAdminUI();
+            cargarUsuariosAdminUI();
+            poblarHojasNuevoUsuarioUI();
+          } catch (err) {
+            toast('Error: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = label;
+          }
+        }
+      });
+    }
   });
 }
 

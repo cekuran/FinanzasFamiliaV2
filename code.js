@@ -625,6 +625,20 @@ function bajaSpreadsheetAdmin(spreadsheetId) {
   return { ok: true };
 }
 
+function renombrarSpreadsheetAdmin(spreadsheetId, nombre) {
+  requireAdmin_();
+  const id = String(spreadsheetId || '').trim();
+  const nom = String(nombre || '').trim();
+  if (!id) throw new Error('Indica el spreadsheet ID');
+  if (!nom) throw new Error('Indica un nombre');
+  const sheets = leerSpreadsheets_();
+  const idx = sheets.findIndex(s => String(s.spreadsheet_id) === id);
+  if (idx === -1) throw new Error('Spreadsheet no registrado');
+  sheets[idx].nombre = nom;
+  escribirSpreadsheets_(sheets);
+  return { ok: true, spreadsheet_id: id, nombre: nom };
+}
+
 function listarVinculacionesAdmin() {
   requireAdmin_();
   const sheets = leerSpreadsheets_();
