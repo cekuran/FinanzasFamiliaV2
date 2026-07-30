@@ -46,7 +46,6 @@ const SEMILLA = {
 };
 
 // ───────── Helpers de sesión y ss ─────────
-const PROP_SHEET_ID_LEGACY = 'SHEET_ID';
 const PROP_TOKEN_PREFIX = 'AUTH_TOKEN_';
 const PROP_SHEET_ID = 'SHEET_ID_PRODUCTION';
 const PROP_AUTH_SHEET_ID = 'AUTH_SHEET_ID_PRODUCTION';
@@ -346,10 +345,7 @@ function propAuthIdPorEntorno_() {
 
 function obtenerSheetIdConfigurado_() {
   const props = PropertiesService.getScriptProperties();
-  const id = props.getProperty(propIdPorEntorno_());
-  if (id) return id;
-  // Migración suave desde configuración antigua de un solo sheet.
-  return props.getProperty(PROP_SHEET_ID_LEGACY) || '';
+  return props.getProperty(propIdPorEntorno_()) || '';
 }
 
 function guardarSheetIdParaEntorno_(sheetId) {
@@ -361,8 +357,6 @@ function guardarSheetIdParaEntorno_(sheetId) {
     return '';
   }
   props.setProperty(propId, id);
-  // Mantener compatibilidad con despliegues que aún lean SHEET_ID.
-  props.setProperty(PROP_SHEET_ID_LEGACY, id);
   return id;
 }
 
@@ -820,7 +814,6 @@ function resetSheet() {
   requireAdmin_();
   const props = PropertiesService.getScriptProperties();
   props.deleteProperty(propIdPorEntorno_());
-  props.deleteProperty(PROP_SHEET_ID_LEGACY);
   const ss = ss_();
   return { entorno: 'production', sheet_id: ss.getId() };
 }
