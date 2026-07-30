@@ -241,6 +241,64 @@ function listarUsuariosAdmin() {
   }));
 }
 
+function resetearContrasenaAdmin(username, passwordNueva) {
+  requireAdmin_();
+  asegurarUsuarios_();
+  const user = String(username || '').trim();
+  const nueva = String(passwordNueva || '');
+  if (!user) throw new Error('Debes indicar el usuario');
+  if (nueva.length < 8) throw new Error('La nueva contraseña debe tener mínimo 8 caracteres');
+  const rows = leerUsuariosAuth_();
+  const idx = rows.findIndex(u => String(u.username || '').trim().toLowerCase() === user.toLowerCase());
+  if (idx < 0) throw new Error('Usuario no encontrado');
+  const saltNuevo = Utilities.getUuid().replace(/-/g, '');
+  rows[idx].salt = saltNuevo;
+  rows[idx].password_hash = passwordHash_(nueva, saltNuevo);
+  escribirUsuariosAuth_(rows);
+  return { ok: true, user: user };
+}
+
+function cambiarRolUsuarioAdmin(username, rol) {
+  requireAdmin_();
+  asegurarUsuarios_();
+  const actor = currentUser_();
+  const user = String(username || '').trim();
+  const rolFinal = String(rol || ROLES.BASICO).trim().toLowerCase();
+  if (!Object.values(ROLES).includes(rolFinal)) throw new Error('Rol inválido');
+  const rows = leerUsuariosAuth_();
+  const idx = rows.findIndex(u => String(u.username || '').trim().toLowerCase() === user.toLowerCase());
+  if (idx < 0) throw new Error('Usuario no encontrado');
+  const esMismoActor = String(rows[idx].username || '').trim().toLowerCase() === String(actor || '').trim().toLowerCase();
+  if (rolFinal !== ROLES.ADMIN) {
+    const adminsRestantes = rows.filter(u => String(u.rol) === ROLES.ADMIN && String(u.username || '').trim().toLowerCase() !== user.toLowerCase()).length;
+    if (esMismoActor && adminsRestantes === 0) throw new Error('No puedes quitarte el último admin');
+  }
+  rows[idx].rol = rolFinal;
+  escribirUsuariosAuth_(rows);
+  return { ok: true, user: user, rol: rolFinal };
+}
+
+function eliminarUsuarioAdmin(username) {
+  requireAdmin_();
+  asegurarUsuarios_();
+  const actor = currentUser_();
+  const user = String(username || '').trim();
+  if (!user) throw new Error('Debes indicar el usuario');
+  const rows = leerUsuariosAuth_();
+  const idx = rows.findIndex(u => String(u.username || '').trim().toLowerCase() === user.toLowerCase());
+  if (idx < 0) throw new Error('Usuario no encontrado');
+  if (String(rows[idx].username || '').trim().toLowerCase() === String(actor || '').trim().toLowerCase()) {
+    throw new Error('No puedes eliminarte a ti mismo');
+  }
+  if (String(rows[idx].rol) === ROLES.ADMIN) {
+    const otrosAdmins = rows.filter(u => String(u.rol) === ROLES.ADMIN && String(u.username || '').trim().toLowerCase() !== user.toLowerCase()).length;
+    if (otrosAdmins === 0) throw new Error('No puedes eliminar al último admin');
+  }
+  rows.splice(idx, 1);
+  escribirUsuariosAuth_(rows);
+  return { ok: true, user: user };
+}
+
 function cambiarMiContrasena(passwordActual, passwordNueva) {
   const actor = requireUsuario_();
   asegurarUsuarios_();

@@ -422,6 +422,14 @@
   .loading-block .spinner { width: 28px; height: 28px; border-width: 2px; }
   .loading-table-row { padding: 0 !important; }
   .loading-table-row .loading-block { min-height: 160px; }
+
+  .user-row { padding: 10px 0; border-top: 1px solid var(--surface-container); display: flex; flex-direction: column; gap: 6px; }
+  .user-row-main { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .user-row-name { flex: 1 1 120px; min-width: 120px; font-weight: 600; }
+  .user-row-rol { width: auto; min-width: 110px; padding: 6px 10px; font-size: 14px; }
+  .user-row-reset { display: none; flex-wrap: wrap; gap: 6px; }
+  .user-row-reset.is-open { display: flex; }
+  .user-row-reset .input { flex: 1 1 180px; min-width: 180px; padding: 10px 12px; font-size: 14px; }
   .auth-screen {
     min-height: 100dvh;
     display: grid;
@@ -1035,6 +1043,16 @@
   </form>
 </div>
 
+<div class="sheet bottom" id="sheetConfirm" role="alertdialog" aria-modal="true" aria-labelledby="sheetConfirmTitle">
+  <div class="sheet-handle"></div>
+  <h3 id="sheetConfirmTitle">Confirmar</h3>
+  <p id="sheetConfirmMsg" style="margin: 0 0 var(--s-4); color: var(--on-surface-variant);"></p>
+  <div style="display: flex; gap: var(--s-2);">
+    <button type="button" class="btn btn-secondary" id="sheetConfirmCancel" style="flex: 1;">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="sheetConfirmOk" style="flex: 2;">Confirmar</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span id="toastMsg">Listo</span></div>
 
 <script>
@@ -1280,11 +1298,28 @@ async function cargarUsuariosAdminUI() {
       listEl.textContent = 'Sin usuarios.';
       return;
     }
+    const yo = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.user) || '';
     listEl.innerHTML = users.map(u => {
-      const estado = u.activo ? 'activo' : 'inactivo';
-      const rol = u.rol === 'admin' ? 'admin' : 'basico';
-      return '<div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-top:1px solid var(--surface-container);">'
-        + '<span>' + escape(u.username) + '</span><span style="color:var(--on-surface-variant);">' + rol + ' · ' + estado + '</span></div>';
+      const rol = String(u.rol || 'basico').toLowerCase() === 'admin' ? 'admin' : 'basico';
+      const esYo = String(u.username || '').toLowerCase() === String(yo || '').toLowerCase();
+      const labelYo = esYo ? ' (tú)' : '';
+      const delAttr = esYo ? ' disabled title="No puedes eliminarte a ti mismo"' : '';
+      return `<div class="user-row" data-username="${escape(u.username)}">`
+        + `<div class="user-row-main">`
+        +   `<span class="user-row-name">${escape(u.username)}${escape(labelYo)}</span>`
+        +   `<select class="select user-row-rol" data-user-action="rol" aria-label="Rol de ${escape(u.username)}">`
+        +     `<option value="basico"${rol === 'basico' ? ' selected' : ''}>Básico</option>`
+        +     `<option value="admin"${rol === 'admin' ? ' selected' : ''}>Admin</option>`
+        +   `</select>`
+        +   `<button class="btn btn-sm btn-outline" type="button" data-user-action="reset">Reset pass</button>`
+        +   `<button class="btn btn-sm btn-danger" type="button" data-user-action="delete"${delAttr}>Eliminar</button>`
+        + `</div>`
+        + `<div class="user-row-reset">`
+        +   `<input class="input" type="password" placeholder="Nueva contraseña (mín 8)" autocomplete="new-password">`
+        +   `<button class="btn btn-sm btn-primary" type="button" data-user-action="save-pass">Guardar</button>`
+        +   `<button class="btn btn-sm btn-secondary" type="button" data-user-action="cancel-reset">Cancelar</button>`
+        + `</div>`
+        + `</div>`;
     }).join('');
   } catch (e) {
     listEl.textContent = 'No disponible para este usuario.';
@@ -1954,6 +1989,17 @@ function closeAllSheets() {
   $$('.sheet').forEach(s => s.classList.remove('is-open'));
 }
 $('#overlay').addEventListener('click', closeAllSheets);
+
+function openConfirm({ title, message, danger = false, confirmLabel = 'Confirmar', onConfirm }) {
+  $('#sheetConfirmTitle').textContent = title || 'Confirmar';
+  $('#sheetConfirmMsg').textContent = message || '';
+  const ok = $('#sheetConfirmOk');
+  ok.textContent = confirmLabel;
+  ok.className = danger ? 'btn btn-danger' : 'btn btn-primary';
+  ok.onclick = async () => { closeAllSheets(); if (onConfirm) await onConfirm(); };
+  $('#sheetConfirmCancel').onclick = closeAllSheets;
+  openSheet('sheetConfirm');
+}
 
 // === Tx sheet ===
 function openTx(id) {
@@ -2661,6 +2707,103 @@ $('#adminUserForm').addEventListener('submit', async (e) => {
     $('#adminNewRol').disabled = false;
   }
 });
+
+const adminUsersList = $('#adminUsersList');
+if (adminUsersList) {
+  adminUsersList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-user-action]');
+    if (!btn || !adminUsersList.contains(btn)) return;
+    const action = btn.dataset.userAction;
+    const row = btn.closest('.user-row');
+    if (!row) return;
+    const username = row.dataset.username || '';
+
+    if (action === 'reset') {
+      const reset = row.querySelector('.user-row-reset');
+      if (!reset) return;
+      const abierto = reset.classList.toggle('is-open');
+      if (abierto) {
+        const input = reset.querySelector('input');
+        if (input) { input.value = ''; input.focus(); }
+      }
+      return;
+    }
+    if (action === 'cancel-reset') {
+      const reset = row.querySelector('.user-row-reset');
+      if (reset) {
+        reset.classList.remove('is-open');
+        const input = reset.querySelector('input');
+        if (input) input.value = '';
+      }
+      return;
+    }
+    if (action === 'save-pass') {
+      const input = row.querySelector('.user-row-reset input');
+      const nueva = (input && input.value) || '';
+      if (nueva.length < 8) { toast('La contraseña debe tener mínimo 8 caracteres'); return; }
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Guardando...';
+      try {
+        await call('resetearContrasenaAdmin', username, nueva);
+        toast('Contraseña actualizada');
+        const reset = row.querySelector('.user-row-reset');
+        if (reset) {
+          reset.classList.remove('is-open');
+          if (input) input.value = '';
+        }
+      } catch (err) {
+        toast('Error: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+      return;
+    }
+    if (action === 'delete') {
+      const label = btn.textContent;
+      await openConfirm({
+        title: 'Eliminar usuario',
+        message: '¿Eliminar al usuario "' + username + '"? Sus datos (cuentas, transacciones) no se borrarán.',
+        danger: true,
+        confirmLabel: 'Eliminar',
+        onConfirm: async () => {
+          btn.disabled = true;
+          btn.textContent = 'Eliminando...';
+          try {
+            await call('eliminarUsuarioAdmin', username);
+            toast('Usuario eliminado');
+            cargarUsuariosAdminUI();
+          } catch (err) {
+            toast('Error: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = label;
+          }
+        }
+      });
+      return;
+    }
+  });
+
+  adminUsersList.addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-user-action="rol"]');
+    if (!sel || !adminUsersList.contains(sel)) return;
+    const row = sel.closest('.user-row');
+    if (!row) return;
+    const username = row.dataset.username || '';
+    const rol = sel.value;
+    sel.disabled = true;
+    try {
+      await call('cambiarRolUsuarioAdmin', username, rol);
+      toast('Rol actualizado');
+    } catch (err) {
+      toast('Error: ' + err.message);
+      cargarUsuariosAdminUI();
+    } finally {
+      sel.disabled = false;
+    }
+  });
+}
 
 wireIconGrid($('#catIconGrid'), CAT_ICONS);
 wireIconGrid($('#ctaIconGrid'), CTA_ICONS);
