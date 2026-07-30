@@ -489,7 +489,7 @@
 </style>
 </head>
 <body>
-<section class="auth-screen" id="authScreen">
+<section class="auth-screen" id="authScreen" style="display:none;">
   <div class="auth-card">
     <h2 class="auth-title">Acceso</h2>
     <p class="auth-sub">Inicia sesión para entrar a tu espacio financiero.</p>
@@ -1491,6 +1491,11 @@ async function iniciarAppAutenticada() {
   go('dashboard');
   sincronizarTransacciones({ render: true, toastOnError: true });
   mostrarApp();
+}
+
+function esErrorAutenticacion(err) {
+  const msg = String((err && err.message) || err || '').toLowerCase();
+  return /no autenticado|credenciales|token|sesion|sesión/.test(msg);
 }
 
 function actualizarSelectorHoja() {
@@ -3218,18 +3223,26 @@ window.addEventListener('hashchange', () => {
 (async function init() {
   try {
     const token = localStorage.getItem(AUTH_TOKEN_KEY) || '';
-    const status = await call('authStatus', token);
-    if (!status || !status.authenticated) {
-      const sesionExpirada = !!localStorage.getItem(AUTH_IS_LOGGED_KEY);
-      localStorage.removeItem(AUTH_TOKEN_KEY);
-      localStorage.removeItem(AUTH_IS_LOGGED_KEY);
-      mostrarLogin();
-      if (sesionExpirada) showAuthError('Tu sesión expiró. Inicia sesión de nuevo.');
-      return;
+    const sesionExpirada = !!localStorage.getItem(AUTH_IS_LOGGED_KEY);
+
+    // Arranque optimista: si hay token, intentamos cargar directamente la app
+    // para evitar una llamada extra de authStatus en cada recarga.
+    if (token) {
+      try {
+        await iniciarAppAutenticada();
+        const user = ((Estado.bootstrap.sesion && Estado.bootstrap.sesion.user) || '').trim();
+        localStorage.setItem(AUTH_LAST_USER_KEY, user);
+        localStorage.setItem(AUTH_IS_LOGGED_KEY, '1');
+        return;
+      } catch (err) {
+        if (!esErrorAutenticacion(err)) throw err;
+      }
     }
-    localStorage.setItem(AUTH_LAST_USER_KEY, status.user || '');
-    localStorage.setItem(AUTH_IS_LOGGED_KEY, '1');
-    await iniciarAppAutenticada();
+
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_IS_LOGGED_KEY);
+    mostrarLogin();
+    if (sesionExpirada) showAuthError('Tu sesión expiró. Inicia sesión de nuevo.');
   } catch (e) {
     document.body.innerHTML = '<div class="empty"><h2>Error de carga</h2><p>' + escape(e.message) + '</p></div>';
   }
