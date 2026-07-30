@@ -251,9 +251,6 @@
     font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
     background: var(--secondary-container); color: var(--on-secondary-container);
   }
-  .env-badge.is-test { background: color-mix(in srgb, var(--amber) 20%, var(--surface-container-low)); color: #8a4b00; }
-  .env-select { width: auto; min-width: 160px; padding: 8px 12px; font-size: 13px; border-radius: var(--r-full); }
-  .env-btn { height: 30px; padding: 0 10px; font-size: 12px; }
 
   /* === Icon picker === */
   .icon-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-2); }
@@ -853,15 +850,10 @@
       </div>
       <div class="bento" style="margin-top: var(--s-4);">
         <div class="card col-6">
-          <div class="card-h"><h2>Entorno</h2></div>
-          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Usa <strong>Producción</strong> para datos reales y <strong>Pruebas</strong> para validar cambios sin afectar finanzas reales.</div>
+          <div class="card-h"><h2>Entorno de datos</h2></div>
+          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Este despliegue usa un único entorno de datos.</div>
           <div class="env-switch" style="margin-bottom: var(--s-3);">
             <span class="env-badge" id="adminEnvBadge">PROD</span>
-            <select class="select env-select" id="adminEnvSelect" aria-label="Entorno de datos en administración">
-              <option value="production">Producción</option>
-              <option value="test">Pruebas</option>
-            </select>
-            <button class="btn btn-outline btn-sm env-btn" id="adminEnvApply" type="button">Cambiar</button>
           </div>
           <div class="body-sm" id="adminEnvInfo" style="color: var(--on-surface-variant);">Entorno activo: Producción</div>
         </div>
@@ -1589,45 +1581,17 @@ function normalizarBootstrap(b) {
     resumen: b.resumen || null,
     sesion: b.sesion || null,
     version: b.version || '',
-    entorno: b.entorno === 'test' ? 'test' : 'production',
+    entorno: 'production',
     hojas: Array.isArray(b.hojas) ? b.hojas : [],
     hojaActivaId: b.hojaActivaId || ''
   };
 }
 
-let _switchingEnv = false;
 function actualizarEntornoUI() {
-  const env = (Estado.bootstrap && Estado.bootstrap.entorno) === 'test' ? 'test' : 'production';
-  const isTest = env === 'test';
-  $('#adminEnvSelect').value = env;
-  $('#adminEnvBadge').textContent = isTest ? 'TEST' : 'PROD';
-  $('#adminEnvBadge').classList.toggle('is-test', isTest);
-  $('#adminEnvInfo').textContent = 'Entorno activo: ' + (isTest ? 'Pruebas' : 'Producción');
+  $('#adminEnvBadge').textContent = 'PROD';
+  $('#adminEnvInfo').textContent = 'Entorno activo: Producción';
   const v = Estado.bootstrap.version;
-  $('#sidebarFoot').textContent = (v ? 'v' + v + ' · ' : '') + 'Finanzas Familia · ' + (isTest ? 'TEST' : 'PROD');
-}
-
-async function cambiarEntornoDesdeUI() {
-  if (_switchingEnv) return;
-  const next = $('#adminEnvSelect').value === 'test' ? 'test' : 'production';
-  const current = (Estado.bootstrap && Estado.bootstrap.entorno) === 'test' ? 'test' : 'production';
-  if (next === current) return;
-  _switchingEnv = true;
-  $('#adminEnvApply').disabled = true;
-  $('#adminEnvApply').textContent = '...';
-  try {
-    await call('setEntorno', next);
-    await recargar();
-    actualizarEntornoUI();
-    toast('Entorno cambiado a ' + (next === 'test' ? 'pruebas' : 'producción'));
-  } catch (e) {
-    $('#adminEnvSelect').value = current;
-    toast('Error al cambiar entorno: ' + e.message);
-  } finally {
-    _switchingEnv = false;
-    $('#adminEnvApply').disabled = false;
-    $('#adminEnvApply').textContent = 'Cambiar';
-  }
+  $('#sidebarFoot').textContent = (v ? 'v' + v + ' · ' : '') + 'Finanzas Familia · PROD';
 }
 
 function renderAdmin() {
@@ -2802,7 +2766,6 @@ $('#btnConciliarTop').addEventListener('click', () => go('conciliar'));
 $('#hojaSelector').addEventListener('change', (e) => cambiarHojaActivaUI(e.target.value));
 $('#dashConciliar').addEventListener('click', () => go('conciliar'));
 $('#conOk').addEventListener('click', doConciliar);
-$('#adminEnvApply').addEventListener('click', cambiarEntornoDesdeUI);
 
 $('#authForm').addEventListener('submit', async (e) => {
   e.preventDefault();

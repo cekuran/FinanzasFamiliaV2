@@ -46,21 +46,14 @@ const SEMILLA = {
 };
 
 // ───────── Helpers de sesión y ss ─────────
-const PROP_APP_ENV = 'APP_ENV';
+const FIXED_ENV = 'production';
 const PROP_SHEET_ID_LEGACY = 'SHEET_ID';
 const PROP_TOKEN_PREFIX = 'AUTH_TOKEN_';
-const ENTORNOS = ['production', 'test'];
-const SHEET_ID_PROP_BY_ENV = {
-  production: 'SHEET_ID_PRODUCTION',
-  test: 'SHEET_ID_TEST'
-};
-const AUTH_SHEET_ID_PROP_BY_ENV = {
-  production: 'AUTH_SHEET_ID_PRODUCTION',
-  test: 'AUTH_SHEET_ID_TEST'
-};
+const PROP_SHEET_ID = 'SHEET_ID_PRODUCTION';
+const PROP_AUTH_SHEET_ID = 'AUTH_SHEET_ID_PRODUCTION';
 
 // ponytail: token cacheado de la invocación actual. La auth real vive en
-// ScriptProperties (PROP_TOKEN_PREFIX_<env>_<token>); este var evita tener
+// ScriptProperties (PROP_TOKEN_PREFIX_<token>); este var evita tener
 // que pasar el token por cada helper. Antes se usaba
 // Session.getTemporaryActiveUserKey() como parte de la clave de caché, pero
 // bajo USER_DEPLOYING devuelve la misma clave para todos los visitantes y
@@ -77,7 +70,7 @@ let _selfTestActive = false;
 const SELF_TEST_USER = '__selftest__';
 
 function tokenMapKey_(token) {
-  return PROP_TOKEN_PREFIX + normalizarEntorno_(entornoActual_()) + '_' + String(token || '').trim();
+  return PROP_TOKEN_PREFIX + String(token || '').trim();
 }
 
 function currentUser_() {
@@ -345,39 +338,33 @@ function cambiarMiContrasena(passwordActual, passwordNueva) {
 }
 
 function normalizarEntorno_(entorno) {
-  const e = String(entorno || '').toLowerCase();
-  return ENTORNOS.includes(e) ? e : 'production';
+  return FIXED_ENV;
 }
 
 function entornoActual_() {
-  return normalizarEntorno_(PropertiesService.getScriptProperties().getProperty(PROP_APP_ENV));
+  return FIXED_ENV;
 }
 
 function propIdPorEntorno_(entorno) {
-  const e = normalizarEntorno_(entorno);
-  return SHEET_ID_PROP_BY_ENV[e];
+  return PROP_SHEET_ID;
 }
 
 function propAuthIdPorEntorno_(entorno) {
-  const e = normalizarEntorno_(entorno);
-  return AUTH_SHEET_ID_PROP_BY_ENV[e];
+  return PROP_AUTH_SHEET_ID;
 }
 
 function obtenerSheetIdConfigurado_(entorno) {
   const props = PropertiesService.getScriptProperties();
-  const e = normalizarEntorno_(entorno);
-  const propId = propIdPorEntorno_(e);
+  const propId = propIdPorEntorno_(entorno);
   const id = props.getProperty(propId);
   if (id) return id;
   // Migración suave desde configuración antigua de un solo sheet.
-  if (e === 'production') return props.getProperty(PROP_SHEET_ID_LEGACY) || '';
-  return '';
+  return props.getProperty(PROP_SHEET_ID_LEGACY) || '';
 }
 
 function guardarSheetIdParaEntorno_(entorno, sheetId) {
   const props = PropertiesService.getScriptProperties();
-  const e = normalizarEntorno_(entorno);
-  const propId = propIdPorEntorno_(e);
+  const propId = propIdPorEntorno_(entorno);
   const id = String(sheetId || '').trim();
   if (!id) {
     props.deleteProperty(propId);
@@ -385,20 +372,18 @@ function guardarSheetIdParaEntorno_(entorno, sheetId) {
   }
   props.setProperty(propId, id);
   // Mantener compatibilidad con despliegues que aún lean SHEET_ID.
-  if (e === 'production') props.setProperty(PROP_SHEET_ID_LEGACY, id);
+  props.setProperty(PROP_SHEET_ID_LEGACY, id);
   return id;
 }
 
 function obtenerAuthSheetIdConfigurado_(entorno) {
   const props = PropertiesService.getScriptProperties();
-  const e = normalizarEntorno_(entorno);
-  return props.getProperty(propAuthIdPorEntorno_(e)) || '';
+  return props.getProperty(propAuthIdPorEntorno_(entorno)) || '';
 }
 
 function guardarAuthSheetIdParaEntorno_(entorno, sheetId) {
   const props = PropertiesService.getScriptProperties();
-  const e = normalizarEntorno_(entorno);
-  const propId = propAuthIdPorEntorno_(e);
+  const propId = propAuthIdPorEntorno_(entorno);
   const id = String(sheetId || '').trim();
   if (!id) {
     props.deleteProperty(propId);
@@ -409,16 +394,14 @@ function guardarAuthSheetIdParaEntorno_(entorno, sheetId) {
 }
 
 function ss_() {
-  const props = PropertiesService.getScriptProperties();
-  const env = entornoActual_();
-  const configuredId = obtenerSheetIdConfigurado_(env);
+  const configuredId = obtenerSheetIdConfigurado_(FIXED_ENV);
   if (configuredId) {
     try { return SpreadsheetApp.openById(configuredId); }
     catch (e) { /* id inválido, recrear */ }
   }
-  // Primera vez (o id corrupto): crear spreadsheet propio por entorno.
-  const ss = SpreadsheetApp.create('Finanzas Familia [' + env + ']');
-  guardarSheetIdParaEntorno_(env, ss.getId());
+  // Primera vez (o id corrupto): crear spreadsheet por defecto.
+  const ss = SpreadsheetApp.create('Finanzas Familia [' + FIXED_ENV + ']');
+  guardarSheetIdParaEntorno_(FIXED_ENV, ss.getId());
   // Mover la hoja "Hoja 1" por defecto al final, queda fuera de la vista
   const porDefecto = ss.getSheets()[0];
   if (porDefecto && ss.getSheets().length === 1) porDefecto.setName('_log');
@@ -436,14 +419,13 @@ function ssActiva_() {
 }
 
 function authSs_() {
-  const env = entornoActual_();
-  const configuredId = obtenerAuthSheetIdConfigurado_(env);
+  const configuredId = obtenerAuthSheetIdConfigurado_(FIXED_ENV);
   if (configuredId) {
     try { return SpreadsheetApp.openById(configuredId); }
     catch (e) { /* id inválido, recrear */ }
   }
-  const ss = SpreadsheetApp.create('Finanzas Familia Auth [' + env + ']');
-  guardarAuthSheetIdParaEntorno_(env, ss.getId());
+  const ss = SpreadsheetApp.create('Finanzas Familia Auth [' + FIXED_ENV + ']');
+  guardarAuthSheetIdParaEntorno_(FIXED_ENV, ss.getId());
   const porDefecto = ss.getSheets()[0];
   if (porDefecto && ss.getSheets().length === 1) porDefecto.setName('_log');
   return ss;
@@ -572,7 +554,7 @@ function escribirHojasUsuarios_(filas) { escribirAuthHojaGenerica_('HojasUsuario
 // Resuelve la hoja activa del usuario actual con la siguiente prioridad:
 // 1) Hoja por defecto explícita en HojasUsuarios
 // 2) Primera hoja vinculada
-// 3) Hoja de entorno (SHEET_ID_PRODUCTION/TEST legacy) — auto-vinculada al usuario
+// 3) Hoja por defecto global legacy — auto-vinculada al usuario
 //    si no tiene otras
 function resolverHojaActivaId_(username) {
   username = String(username || '').trim();
@@ -581,9 +563,8 @@ function resolverHojaActivaId_(username) {
   const defecto = links.find(l => String(l.por_defecto) === 'true' || String(l.por_defecto) === true);
   if (defecto) return String(defecto.spreadsheet_id);
   if (links.length) return String(links[0].spreadsheet_id);
-  // Auto-vincular al sheet por defecto del entorno (migración suave).
-  const env = entornoActual_();
-  const envId = obtenerSheetIdConfigurado_(env);
+  // Auto-vincular al sheet por defecto global (migración suave).
+  const envId = obtenerSheetIdConfigurado_(FIXED_ENV);
   if (envId) {
     vincularHojaUsuarioInternal_(username, envId, true);
     return envId;
@@ -794,21 +775,18 @@ function cambiarHojaActiva(spreadsheetId) {
 }
 
 function obtenerConfigSheets() {
-  const env = entornoActual_();
   return {
-    entorno: env,
-    sheet_id_production: obtenerSheetIdConfigurado_('production'),
-    sheet_id_test: obtenerSheetIdConfigurado_('test'),
-    auth_sheet_id_production: obtenerAuthSheetIdConfigurado_('production'),
-    auth_sheet_id_test: obtenerAuthSheetIdConfigurado_('test')
+    entorno: FIXED_ENV,
+    sheet_id: obtenerSheetIdConfigurado_(FIXED_ENV),
+    sheet_id_production: obtenerSheetIdConfigurado_(FIXED_ENV),
+    auth_sheet_id: obtenerAuthSheetIdConfigurado_(FIXED_ENV),
+    auth_sheet_id_production: obtenerAuthSheetIdConfigurado_(FIXED_ENV)
   };
 }
 
 function setEntorno(entorno) {
   requireAdmin_();
-  const env = normalizarEntorno_(entorno);
-  PropertiesService.getScriptProperties().setProperty(PROP_APP_ENV, env);
-  // Garantiza que el entorno tenga sheet asignado.
+  // Compatibilidad: el entorno queda fijo a production.
   ss_();
   authSs_();
   return obtenerConfigSheets();
@@ -816,52 +794,46 @@ function setEntorno(entorno) {
 
 function setSheetIdEntorno(entorno, sheetId) {
   requireAdmin_();
-  const env = normalizarEntorno_(entorno);
   const id = String(sheetId || '').trim();
   if (!id) throw new Error('Debes indicar un sheetId válido.');
   SpreadsheetApp.openById(id); // Validación temprana.
-  guardarSheetIdParaEntorno_(env, id);
+  guardarSheetIdParaEntorno_(FIXED_ENV, id);
   return obtenerConfigSheets();
 }
 
 function setAuthSheetIdEntorno(entorno, sheetId) {
   requireAdmin_();
-  const env = normalizarEntorno_(entorno);
   const id = String(sheetId || '').trim();
   if (!id) throw new Error('Debes indicar un sheetId válido.');
   SpreadsheetApp.openById(id); // Validación temprana.
-  guardarAuthSheetIdParaEntorno_(env, id);
+  guardarAuthSheetIdParaEntorno_(FIXED_ENV, id);
   asegurarAuthHojaUsuarios_();
   return obtenerConfigSheets();
 }
 
 function setSheetIdPruebas(sheetId) {
-  return setSheetIdEntorno('test', sheetId);
+  return setSheetIdEntorno(FIXED_ENV, sheetId);
 }
 
 function setSheetIdProduccion(sheetId) {
-  return setSheetIdEntorno('production', sheetId);
+  return setSheetIdEntorno(FIXED_ENV, sheetId);
 }
 
 function setAuthSheetIdPruebas(sheetId) {
-  return setAuthSheetIdEntorno('test', sheetId);
+  return setAuthSheetIdEntorno(FIXED_ENV, sheetId);
 }
 
 function setAuthSheetIdProduccion(sheetId) {
-  return setAuthSheetIdEntorno('production', sheetId);
+  return setAuthSheetIdEntorno(FIXED_ENV, sheetId);
 }
 
 function resetSheet(entorno) {
   requireAdmin_();
-  const env = normalizarEntorno_(entorno || entornoActual_());
   const props = PropertiesService.getScriptProperties();
-  props.deleteProperty(propIdPorEntorno_(env));
-  if (env === 'production') props.deleteProperty(PROP_SHEET_ID_LEGACY);
-  const previo = props.getProperty(PROP_APP_ENV);
-  props.setProperty(PROP_APP_ENV, env);
+  props.deleteProperty(propIdPorEntorno_(FIXED_ENV));
+  props.deleteProperty(PROP_SHEET_ID_LEGACY);
   const ss = ss_();
-  if (previo) props.setProperty(PROP_APP_ENV, normalizarEntorno_(previo));
-  return { entorno: env, sheet_id: ss.getId() };
+  return { entorno: FIXED_ENV, sheet_id: ss.getId() };
 }
 
 function username_() {
