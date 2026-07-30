@@ -244,14 +244,6 @@
   .btn-icon { width: 40px; height: 40px; padding: 0; border-radius: var(--r-full); }
   .btn-sm { padding: 6px 12px; font-size: 14px; }
 
-  .env-switch { display: inline-flex; align-items: center; gap: 6px; }
-  .env-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    min-width: 78px; height: 30px; padding: 0 10px; border-radius: var(--r-full);
-    font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-    background: var(--secondary-container); color: var(--on-secondary-container);
-  }
-
   /* === Icon picker === */
   .icon-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-2); }
   .icon-grid button { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border-radius: var(--r-md); background: var(--surface-container); color: var(--on-surface-variant); border: 2px solid transparent; cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s; }
@@ -845,15 +837,7 @@
         </div>
       </div>
       <div class="bento" style="margin-top: var(--s-4);">
-        <div class="card col-6">
-          <div class="card-h"><h2>Hoja activa</h2></div>
-          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Spreadsheet de datos que usa actualmente este usuario.</div>
-          <div class="env-switch" style="margin-bottom: var(--s-3);">
-            <span class="env-badge" id="adminEnvBadge" style="min-width:0;max-width:200px;overflow:hidden;text-overflow:ellipsis;">—</span>
-          </div>
-          <div class="body-sm" id="adminEnvInfo" style="color: var(--on-surface-variant);">—</div>
-        </div>
-        <div class="card col-6">
+        <div class="card col-12">
           <div class="card-h"><h2>Usuarios</h2></div>
           <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Solo admin puede crear usuarios nuevos. Rol <strong>admin</strong> da acceso a esta vista; <strong>basico</strong> solo ve el resto.</div>
           <form id="adminUserForm" style="display: grid; gap: var(--s-2); margin-bottom: var(--s-3);">
@@ -1467,7 +1451,6 @@ async function cargarHojasAdminUI() {
 async function iniciarAppAutenticada() {
   Estado.bootstrap = normalizarBootstrap(await call('bootstrapBase'));
   const user = (Estado.bootstrap.sesion && Estado.bootstrap.sesion.user) || '?';
-  actualizarEntornoUI();
   aplicarRolesUI();
   actualizarSelectorHoja();
   $('#avatar').textContent = (user[0] || 'U').toUpperCase();
@@ -1587,22 +1570,7 @@ function normalizarBootstrap(b) {
   };
 }
 
-function nombreHojaActiva_() {
-  const activa = Estado.bootstrap.hojaActivaId;
-  const hoja = (Estado.bootstrap.hojas || []).find(h => h.spreadsheet_id === activa);
-  return hoja ? hoja.nombre : (activa ? '(sin nombre)' : '—');
-}
-
-function actualizarEntornoUI() {
-  const nombre = nombreHojaActiva_();
-  $('#adminEnvBadge').textContent = nombre;
-  $('#adminEnvInfo').textContent = 'Hoja activa: ' + nombre;
-  const v = Estado.bootstrap.version;
-  $('#sidebarFoot').textContent = (v ? 'v' + v + ' · ' : '') + nombre;
-}
-
 function renderAdmin() {
-  actualizarEntornoUI();
   const isAdmin = ((Estado.bootstrap.sesion && Estado.bootstrap.sesion.rol) || '') === 'admin';
   $('#adminUserForm').style.display = isAdmin ? 'grid' : 'none';
   if (!isAdmin) {
@@ -2756,7 +2724,6 @@ async function recargar() {
   Estado.bootstrap = normalizarBootstrap(Object.assign({}, base, {
     transacciones: Array.isArray(txs) ? txs : []
   }));
-  actualizarEntornoUI();
   aplicarRolesUI();
   limpiarFiltrosInvalidos();
   poblarFiltros();
