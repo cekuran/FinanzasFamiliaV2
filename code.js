@@ -1605,6 +1605,7 @@ function guardarTransaccion(tx) {
     const tipoPresupuesto = tipoTransferenciaPresupuesto_(cuentasById, tx.cuenta_id, tx.cuenta_destino_id);
     validarCategoriasTransferencia_(ownerTx, tipoPresupuesto, tx.categoria_id || '', repartoDestinoNormalizado);
   }
+  const recExistenteId = existente ? (existente.recurrente_id || '') : '';
   const fila = {
     owner: ownerTx,
     id: tx.id || uid_('tx'),
@@ -1622,7 +1623,11 @@ function guardarTransaccion(tx) {
     categoria_id: tx.categoria_id || '',
     descripcion: String(tx.descripcion || '').trim(),
     estado: tx.estado || 'pendiente',
-    recurrente_id: tx.recurrente_id || '',
+    // ponytail: preservar el recurrente existente cuando el payload no lo
+    // incluye (caso típico: edit de una tx recurrente sin tocar el switch).
+    // Si el frontend manda tx.recurrente_id === '' explícitamente, eso gana
+    // y desvincula la tx (la UI por separado llama eliminarRecurrente).
+    recurrente_id: tx.recurrente_id !== undefined ? (tx.recurrente_id || '') : recExistenteId,
     fecha_pago: tx.fecha_pago ? iso_(tx.fecha_pago) : '',
     conciliada_con: tx.conciliada_con || '',
     notas: tx.notas || '',
@@ -1636,9 +1641,56 @@ function guardarTransaccion(tx) {
     throw new Error('Falta importe destino o ratio de conversión');
   }
   upsertFila('Transacciones', fila);
-  if (tx.recurrente_plantilla) fila.recurrente_id = upsertRecurrenteBase_(owner, tx);
-  if (fila.recurrente_id) upsertFila('Transacciones', fila);
+  // ponytail: si la tx ya está vinculada a un recurrente, actualizar ese en
+  // lugar de crear uno nuevo. Mantiene las txs generadas previas apuntando al
+  // mismo id.
+  if (tx.recurrente_plantilla) {
+    if (fila.recurrente_id) {
+      actualizarPlantillaRecurrente_(owner, fila.recurrente_id, tx, fila);
+    } else {
+      const nuevoId = upsertRecurrenteBase_(owner, tx);
+      if (nuevoId) {
+        fila.recurrente_id = nuevoId;
+        upsertFila('Transacciones', fila);
+      }
+    }
+  }
   return fila;
+}
+
+// ponytail: actualiza la plantilla de un recurrente existente a partir de la
+// tx. Preserva id, owner, activa, inicio, fin y ultima_generacion.
+function actualizarPlantillaRecurrente_(owner, recurrenteId, tx, filaTx) {
+  const datos = leerHoja('Recurrentes');
+  const idx = datos.findIndex(r => r.id === recurrenteId && r.owner === owner);
+  if (idx < 0) return;
+  const actual = datos[idx];
+  let plantilla;
+  try { plantilla = JSON.parse(actual.plantilla); } catch (_) { plantilla = {}; }
+  const nuevoReparto = Array.isArray(tx.reparto_destino)
+    ? JSON.stringify(tx.reparto_destino)
+    : (tx.reparto_destino || '');
+  const upd = {
+    tipo: filaTx.tipo,
+    importe: Number(filaTx.importe),
+    cuenta_id: filaTx.cuenta_id,
+    subcuenta_id: filaTx.subcuenta_id || '',
+    cuenta_destino_id: filaTx.cuenta_destino_id || '',
+    subcuenta_destino_id: filaTx.subcuenta_destino_id || '',
+    importe_destino: filaTx.importe_destino || '',
+    ratio_conversion: filaTx.ratio_conversion || '',
+    reparto_destino: nuevoReparto,
+    categoria_id: filaTx.categoria_id || '',
+    descripcion: filaTx.descripcion || plantilla.descripcion || '',
+    periodo_meses: Number(tx.recurrente_periodo_meses || plantilla.periodo_meses || 1),
+    dia_mes: Number(tx.recurrente_dia || plantilla.dia_mes || 1)
+  };
+  // Conservar campos historicos que la tx no expone.
+  const merged = Object.assign({}, plantilla, upd);
+  if (!merged.inicio) merged.inicio = actual.ultima_generacion || iso_(filaTx.fecha) || plantilla.inicio || '';
+  validarPlantillaRecurrente_(owner, merged);
+  datos[idx].plantilla = JSON.stringify(merged);
+  escribirHoja('Recurrentes', datos);
 }
 
 function eliminarTransaccion(id) {
@@ -2253,6 +2305,39 @@ function __selfTestBody_(owner) {
          descripcion: 'Alquiler', recurrente_id: 'rec_OTRO' }],
       fakeRec, plantAlquiler, '2026-08-15') !== false)
     throw new Error('No debe colisionar con otro recurrente del mismo mes');
+
+  // Actualizar una tx recurrente debe actualizar el mismo recurrente y
+  // NO crear uno nuevo. Evita la fuga de recurrentes duplicados.
+  const antesUpdate = leerHoja('Recurrentes').length;
+  const txRec = guardarTransaccion({
+    tipo: 'gasto', importe: 50, cuenta_id: cuentas[0].id,
+    categoria_id: cat[0].id, descripcion: 'self-rec-update',
+    fecha: '2026-08-15', recurrente_plantilla: true,
+    recurrente_periodo_meses: 1, recurrente_dia: 15
+  });
+  if (!txRec.id || !txRec.recurrente_id)
+    throw new Error('Crear tx recurrente no produjo recurrente_id');
+  const recIdOriginal = txRec.recurrente_id;
+  const txRecUpdate = guardarTransaccion({
+    id: txRec.id, tipo: 'gasto', importe: 77, cuenta_id: cuentas[0].id,
+    categoria_id: cat[0].id, descripcion: 'self-rec-update-V2',
+    fecha: '2026-08-15', recurrente_plantilla: true,
+    recurrente_periodo_meses: 1, recurrente_dia: 15
+  });
+  if (txRecUpdate.recurrente_id !== recIdOriginal)
+    throw new Error('Update de tx recurrente cambió el id: ' + txRecUpdate.recurrente_id + ' vs ' + recIdOriginal);
+  const despuesUpdate = leerHoja('Recurrentes').length;
+  if (despuesUpdate !== antesUpdate + 1)
+    throw new Error('Update creó un recurrente extra: ' + antesUpdate + ' → ' + despuesUpdate);
+  const recFinal = leerHoja('Recurrentes').find(r => r.id === recIdOriginal);
+  const plantFinal = JSON.parse(recFinal.plantilla);
+  if (plantFinal.importe !== 77 || plantFinal.descripcion !== 'self-rec-update-V2')
+    throw new Error('Plantilla no se actualizó: ' + JSON.stringify(plantFinal));
+  if (recFinal.ultima_generacion !== '2026-08-15')
+    throw new Error('ultima_generacion se perdió/alteró: ' + recFinal.ultima_generacion);
+  // Limpieza
+  eliminarRecurrente(recIdOriginal);
+  eliminarTransaccion(txRec.id);
 
   return 'ok ' + cuentas.length + ' cuentas, ' + cat.length + ' categorías, diferencia=' + conciliado.diferencia;
 }
