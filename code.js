@@ -1329,6 +1329,23 @@ function reordenarSubcuentas(parentId, ids) {
   return obtenerCuentas();
 }
 
+function reordenarCuentas(ids) {
+  const owner = username_();
+  if (!Array.isArray(ids)) throw new Error('Parámetros inválidos');
+  const todas = leerHoja('Cuentas');
+  ids.forEach(id => {
+    if (!todas.some(c => c.owner === owner && c.id === id && !c.parent_id)) {
+      throw new Error('Cuenta inválida');
+    }
+  });
+  ids.forEach((id, i) => {
+    const idx = todas.findIndex(c => c.owner === owner && c.id === id);
+    todas[idx].orden = i + 1;
+  });
+  escribirHoja('Cuentas', todas);
+  return obtenerCuentas();
+}
+
 // ───────── Categorías ─────────
 function obtenerCategorias() {
   const owner = username_();

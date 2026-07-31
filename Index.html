@@ -325,6 +325,8 @@
   .subcta-row { display: flex; align-items: center; gap: var(--s-2); padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-container-lowest); cursor: grab; }
   .subcta-row.is-dragging { opacity: 0.4; }
   .subcta-row.is-drop-target { box-shadow: 0 -2px 0 var(--primary); }
+  .acct.is-dragging { opacity: 0.4; }
+  .acct.is-drop-target { box-shadow: 0 -3px 0 var(--primary); }
   .subcta-grip { color: var(--on-surface-variant); font-size: 16px; line-height: 1; cursor: grab; padding: 0 4px; user-select: none; }
   .subcta-name { flex: 1; font-size: 13px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .subcta-balance { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -1904,7 +1906,7 @@ function syncCategoriasTransferenciaTx_(categoriaPreferida) {
 function renderCuentas() {
   const cuentas = Estado.bootstrap.cuentas;
   $('#cuentasList').innerHTML = cuentas.length ? cuentas.map(c => `
-    <div class="card col-4 acct" style="flex-direction: column; align-items: stretch; gap: var(--s-3);">
+    <div class="card col-4 acct" draggable="true" data-cta-id="${c.id}" style="flex-direction: column; align-items: stretch; gap: var(--s-3);">
       <div style="display: flex; align-items: center; gap: var(--s-3);">
         <div class="acct-ico" style="${c.tipo === 'pasivo' ? 'background: var(--error-container); color: var(--on-error-container);' : ''}">${ICONOS[c.icono] || ICONOS.account_balance_wallet}</div>
         <div class="acct-body">
@@ -1942,6 +1944,7 @@ function renderCuentas() {
   $$('[data-sub-edit]').forEach(b => b.addEventListener('click', () => openCuenta(b.dataset.subEdit, b.dataset.subParent)));
   $$('[data-sub-del]').forEach(b => b.addEventListener('click', () => borrarSubcuenta(b.dataset.subDel, b.dataset.subParent)));
   wireDragReorder();
+  wireAccountDragReorder();
 }
 
 async function borrarCuenta(id) {
@@ -2605,6 +2608,48 @@ async function borrarSubcuenta(id, parentId) {
     refrescarCuentas();
     toast('Subcuenta eliminada');
   } catch (err) { toast('Error: ' + err.message); }
+}
+
+function wireAccountDragReorder() {
+  const list = $('#cuentasList');
+  $$('.acct', list).forEach(card => {
+    card.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', card.dataset.ctaId);
+      e.dataTransfer.effectAllowed = 'move';
+      card.classList.add('is-dragging');
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('is-dragging');
+      $$('.acct', list).forEach(c => c.classList.remove('is-drop-target'));
+    });
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      card.classList.add('is-drop-target');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('is-drop-target'));
+    card.addEventListener('drop', async e => {
+      e.preventDefault();
+      const srcId = e.dataTransfer.getData('text/plain');
+      const dstId = card.dataset.ctaId;
+      card.classList.remove('is-drop-target');
+      if (srcId === dstId) return;
+      const cards = Array.from(list.querySelectorAll('.acct'));
+      const srcIdx = cards.findIndex(c => c.dataset.ctaId === srcId);
+      const dstIdx = cards.findIndex(c => c.dataset.ctaId === dstId);
+      const moved = cards.splice(srcIdx, 1)[0];
+      cards.splice(dstIdx, 0, moved);
+      cards.forEach(c => list.appendChild(c));
+      try {
+        Estado.bootstrap.cuentas = await call('reordenarCuentas', cards.map(c => c.dataset.ctaId));
+        refrescarCuentas();
+        toast('Orden guardado');
+      } catch (err) {
+        toast('Error: ' + err.message);
+        await recargar();
+      }
+    });
+  });
 }
 
 function wireDragReorder() {
