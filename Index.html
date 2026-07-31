@@ -1144,6 +1144,11 @@
     <div class="field"><label>Cuenta</label><select class="select" name="cuenta_id" id="recCuenta" required></select></div>
     <div class="field" id="wrapRecCuentaDest" style="display: none;"><label>Cuenta destino</label><select class="select" name="cuenta_destino_id" id="recCuentaDest"></select></div>
     <div class="field" id="wrapRecSubcuentaDest" style="display: none;"><label>Subcuenta destino</label><select class="select" name="subcuenta_destino_id" id="recSubcuentaDest"><option value="">— Ninguna —</option></select></div>
+    <div id="wrapRecReparto" style="display: none;">
+      <div id="recRepartoList" style="display: flex; flex-direction: column; gap: 4px;"></div>
+      <button type="button" class="btn btn-sm btn-outline" id="btnAddRecReparto" style="margin-top: 6px; align-self: flex-start;">+ Añadir destino</button>
+      <div id="recRepartoTotal" class="body-sm" style="margin-top: 6px; color: var(--on-surface-variant);">Total: 0,00 € / 0,00 €</div>
+    </div>
     <div class="field"><label>Categoría</label><select class="select" name="categoria_id" id="recCat"></select></div>
     <div class="field-row" id="wrapRecConversion" style="display: none;">
       <div class="field"><label>Importe destino</label><input class="input" type="number" step="0.01" name="importe_destino" id="recImporteDest"></div>
@@ -1376,6 +1381,7 @@ const Estado = {
   pres: { anio: new Date().getFullYear(), mes: new Date().getMonth() + 1, asignado: {} },
   txTipo: 'gasto',
   txRepartoDest: [],
+  repRecDest: [],
   editing: null,
   recPlantillaId: ''
 };
@@ -2176,12 +2182,20 @@ function renderRecurrentes() {
     const cta = Estado.bootstrap.cuentas.find(c => c.id === p.cuenta_id);
     const ctaD = Estado.bootstrap.cuentas.find(c => c.id === p.cuenta_destino_id);
     const cat = Estado.bootstrap.categorias.find(c => c.id === p.categoria_id);
-    const tipoVisual = p.tipo === 'transferencia' ? tipoTransferenciaPresupuestoUI_(p.cuenta_id, p.cuenta_destino_id) : p.tipo;
+    const sub = (cta && p.subcuenta_id) ? (cta.subcuentas || []).find(s => s.id === p.subcuenta_id) : null;
+    const isTransfer = p.tipo === 'transferencia';
+    const reparto = isTransfer ? parseRepartoFromTx_(p) || [] : [];
+    const subsDNombres = reparto.map(r => {
+      const sd = ctaD ? (ctaD.subcuentas || []).find(s => s.id === r.subcuenta_id) : null;
+      return sd ? escape(sd.nombre) : '—';
+    });
+    const tipoVisual = isTransfer ? tipoTransferenciaPresupuestoUI_(p.cuenta_id, p.cuenta_destino_id) : p.tipo;
     const sign = tipoVisual === 'ingreso' ? '+' : (tipoVisual === 'gasto' ? '-' : '');
     const color = tipoVisual === 'ingreso' ? 'var(--primary)' : (tipoVisual === 'gasto' ? 'var(--error)' : 'var(--on-surface-variant)');
-    const detalleCuenta = p.tipo === 'transferencia'
-      ? `${escape(cta ? cta.nombre : '—')} → ${escape(ctaD ? ctaD.nombre : '—')}`
-      : escape(cta ? cta.nombre : '—');
+    const origenTxt = `${escape(cta ? cta.nombre : '—')}${sub ? ' · ' + escape(sub.nombre) : ''}`;
+    const detalleCuenta = isTransfer
+      ? `${origenTxt} → ${escape(ctaD ? ctaD.nombre : '—')}${subsDNombres.length ? ' (' + subsDNombres.join(', ') + ')' : ''}`
+      : origenTxt;
     return `<div class="card card-pad-md" style="display: flex; align-items: center; gap: var(--s-4);">
       <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat)}</div>
       <div style="flex: 1;">
@@ -3058,6 +3072,80 @@ $('#formResetConfig').addEventListener('submit', async (e) => {
 // ultima_generacion entre openRec y el submit. Permite editar sin perder
 // campos que el sheet no expone (subcuenta_id, cuenta_destino_id, reparto).
 const recDraft = { id: '', plantilla: '', ultima_generacion: '' };
+// ponytail: helpers paralelos a los del tx sheet (renderRepartoRows, etc.).
+// El rec sheet no expone categoría por fila — usa una sola categoria_id global.
+function renderRepartoRowsRec(subsD, rows) {
+  const wrap = $('#recRepartoList');
+  wrap.innerHTML = '';
+  const btn = $('#btnAddRecReparto');
+  if (!subsD.length) {
+    wrap.innerHTML = '<div class="body-sm" style="color: var(--on-surface-variant);">Esta cuenta no tiene subcuentas. La transferencia se hará a nivel de cuenta.</div>';
+    if (btn) btn.style.display = 'none';
+    return;
+  }
+  if (btn) btn.style.display = '';
+  rows.forEach((r, i) => wrap.appendChild(buildRepartoRowRec(subsD, r, i)));
+}
+function buildRepartoRowRec(subsD, row, idx) {
+  const div = document.createElement('div');
+  div.className = 'reparto-row';
+  const opts = '<option value="">— Subcuenta —</option>' + subsD.map(s =>
+    `<option value="${s.id}" ${s.id === row.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
+  ).join('');
+  div.innerHTML = `
+    <select class="select reparto-sub">${opts}</select>
+    <input class="input reparto-imp" type="number" step="0.01" min="0" placeholder="0,00" value="${row.importe || ''}">
+    <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
+  `;
+  div.querySelector('.reparto-sub').addEventListener('change', e => {
+    Estado.repRecDest[idx].subcuenta_id = e.target.value;
+    actualizarTotalRepartoRec();
+  });
+  div.querySelector('.reparto-imp').addEventListener('input', e => {
+    Estado.repRecDest[idx].importe = Number(e.target.value || 0);
+    actualizarTotalRepartoRec();
+  });
+  div.querySelector('.reparto-remove').addEventListener('click', () => {
+    Estado.repRecDest.splice(idx, 1);
+    renderRepartoRowsRec(subsD, Estado.repRecDest);
+    actualizarTotalRepartoRec();
+  });
+  return div;
+}
+function addRepartoRowRec() {
+  const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#recCuentaDest').value);
+  const subsD = (ctaD && ctaD.subcuentas) || [];
+  if (!subsD.length) { toast('La cuenta destino no tiene subcuentas'); return; }
+  Estado.repRecDest.push({ subcuenta_id: '', importe: 0, categoria_id: '' });
+  renderRepartoRowsRec(subsD, Estado.repRecDest);
+  actualizarTotalRepartoRec();
+}
+function destinoTotalRec_() {
+  const impDest = Number($('#recImporteDest').value || 0);
+  const ratio = Number($('#recRatio').value || 0);
+  if (ratio > 0 && impDest > 0) return impDest;
+  return Number($('#recImporte').value || 0);
+}
+function actualizarTotalRepartoRec() {
+  const total = destinoTotalRec_();
+  const suma = Estado.repRecDest.reduce((s, r) => s + Number(r.importe || 0), 0);
+  const el = $('#recRepartoTotal');
+  if (!el) return;
+  el.textContent = 'Total: ' + fmtMoneda(suma) + ' / ' + fmtMoneda(total);
+  const tieneReparto = Estado.repRecDest.length > 0;
+  el.classList.remove('reparto-total-ok', 'reparto-total-bad');
+  if (tieneReparto) {
+    el.classList.add(Math.abs(suma - total) <= 0.01 ? 'reparto-total-ok' : 'reparto-total-bad');
+  }
+}
+// ponytail: true solo si la plantilla trae reparto_destino crudo (no el
+// fallback legacy de parseRepartoFromTx_ sobre subcuenta_destino_id).
+function hasRepartoDestino_(preferred) {
+  if (!preferred) return false;
+  if (Array.isArray(preferred.reparto_destino) && preferred.reparto_destino.length > 0) return true;
+  if (typeof preferred.reparto_destino === 'string' && preferred.reparto_destino) return true;
+  return false;
+}
 function poblarCategoriasRecurrente(tipo, categoriaId, cuentaOrigenId, cuentaDestinoId) {
   const cats = tipo === 'transferencia'
     ? categoriasTransferenciaSegunDireccion_(cuentaOrigenId || $('#recCuenta').value, cuentaDestinoId || $('#recCuentaDest').value)
@@ -3069,6 +3157,7 @@ function actualizarDestinoRecurrente(preferred) {
   const tipo = $('#recTipo').value;
   const wrapCuentaDest = $('#wrapRecCuentaDest');
   const wrapSubcuentaDest = $('#wrapRecSubcuentaDest');
+  const wrapReparto = $('#wrapRecReparto');
   const wrapConversion = $('#wrapRecConversion');
   const catLabel = $('#recCat').closest('.field').querySelector('label');
   const cuentaOrigenId = $('#recCuenta').value || '';
@@ -3101,6 +3190,32 @@ function actualizarDestinoRecurrente(preferred) {
   } else {
     $('#recSubcuentaDest').innerHTML = '<option value="">— Ninguna —</option>';
   }
+
+  // Reparto destino: solo transferencias con subcuentas en la cuenta destino.
+  const visReparto = tipo === 'transferencia' && subsD.length;
+  if (wrapReparto) wrapReparto.style.display = visReparto ? '' : 'none';
+  if (!visReparto) {
+    Estado.repRecDest = [];
+    renderRepartoRowsRec(subsD, []);
+    actualizarTotalRepartoRec();
+    return;
+  }
+  // Cargar desde la plantilla solo en carga inicial (no keepCurrent). Si la
+  // plantilla trae reparto_destino crudo, lo mostramos; si solo tiene el
+  // legacy subcuenta_destino_id, ese vive en el dropdown — el usuario puede
+  // pulsar "+ Añadir destino" para repartir.
+  if (!(preferred && preferred.keepCurrent) && hasRepartoDestino_(preferred)) {
+    const preferido = parseRepartoFromTx_(preferred);
+    const validIds = new Set(subsD.map(s => s.id));
+    Estado.repRecDest = preferido ? preferido.filter(r => validIds.has(r.subcuenta_id)) : [];
+  } else if (!(preferred && preferred.keepCurrent)) {
+    Estado.repRecDest = [];
+  }
+  // Si la cuenta destino cambió y los ids seleccionados ya no existen, filtrar.
+  const validIds = new Set(subsD.map(s => s.id));
+  Estado.repRecDest = Estado.repRecDest.filter(r => validIds.has(r.subcuenta_id));
+  renderRepartoRowsRec(subsD, Estado.repRecDest);
+  actualizarTotalRepartoRec();
 }
 
 function syncFormRecurrente(plantilla) {
@@ -3129,6 +3244,7 @@ function openRec(id) {
   openSheet('sheetRec');
 }
 $('#recCancel').addEventListener('click', closeAllSheets);
+$('#btnAddRecReparto').addEventListener('click', addRepartoRowRec);
 $('#recTipo').addEventListener('change', () => {
   poblarCategoriasRecurrente($('#recTipo').value, '', $('#recCuenta').value, $('#recCuentaDest').value);
   actualizarDestinoRecurrente({ keepCurrent: true });
@@ -3154,11 +3270,10 @@ $('#formRec').addEventListener('submit', async (e) => {
   const subcuentaDestinoId = esTransfer ? (f.get('subcuenta_destino_id') || '') : '';
   const importeDestino = esTransfer ? Number(f.get('importe_destino') || 0) : 0;
   const ratioConversion = esTransfer ? Number(f.get('ratio_conversion') || 0) : 0;
-  const repartoPrevio = parseRepartoFromTx_(base) || [];
-  const mantenerReparto = esTransfer
-    && repartoPrevio.length > 1
-    && String(base.cuenta_destino_id || '') === String(cuentaDestinoId)
-    && !subcuentaDestinoId;
+  // Reparto desde la UI del rec sheet. Si hay entradas, sustituye al
+  // subcuenta_destino_id simple (mutuamente excluyente en el formulario).
+  const repartoInput = Estado.repRecDest.filter(r => r.subcuenta_id && Number(r.importe) > 0);
+  const usarReparto = esTransfer && repartoInput.length > 0;
   const plantilla = Object.assign({}, base, {
     descripcion: f.get('descripcion'),
     importe: Number(f.get('importe')),
@@ -3167,12 +3282,10 @@ $('#formRec').addEventListener('submit', async (e) => {
     dia_mes: Number(f.get('dia_mes')),
     cuenta_id: f.get('cuenta_id'),
     cuenta_destino_id: cuentaDestinoId,
-    subcuenta_destino_id: subcuentaDestinoId,
+    subcuenta_destino_id: usarReparto ? '' : subcuentaDestinoId,
     importe_destino: esTransfer && importeDestino > 0 ? importeDestino : '',
     ratio_conversion: esTransfer && ratioConversion > 0 ? ratioConversion : '',
-    reparto_destino: mantenerReparto
-      ? (typeof base.reparto_destino === 'string' ? base.reparto_destino : JSON.stringify(repartoPrevio))
-      : '',
+    reparto_destino: usarReparto ? JSON.stringify(repartoInput) : '',
     categoria_id: f.get('categoria_id') || ''
   });
   if (!esTransfer) {
