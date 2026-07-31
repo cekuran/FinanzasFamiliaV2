@@ -1149,7 +1149,7 @@
       <button type="button" class="btn btn-sm btn-outline" id="btnAddRecReparto" style="margin-top: 6px; align-self: flex-start;">+ Añadir destino</button>
       <div id="recRepartoTotal" class="body-sm" style="margin-top: 6px; color: var(--on-surface-variant);">Total: 0,00 € / 0,00 €</div>
     </div>
-    <div class="field"><label>Categoría</label><select class="select" name="categoria_id" id="recCat"></select></div>
+    <div class="field" id="wrapRecCat"><label>Categoría</label><select class="select" name="categoria_id" id="recCat"></select></div>
     <div class="field-row" id="wrapRecConversion" style="display: none;">
       <div class="field"><label>Importe destino</label><input class="input" type="number" step="0.01" name="importe_destino" id="recImporteDest"></div>
       <div class="field"><label>Ratio (1 origen = X destino)</label><input class="input" type="number" step="0.000001" name="ratio_conversion" id="recRatio"></div>
@@ -3109,6 +3109,10 @@ function buildRepartoRowRec(subsD, row, idx) {
     Estado.repRecDest.splice(idx, 1);
     renderRepartoRowsRec(subsD, Estado.repRecDest);
     actualizarTotalRepartoRec();
+    // ponytail: si no quedan filas de reparto, devolver el dropdown para
+    // que el usuario pueda volver al modo "subcuenta única".
+    const wrapSubDest = $('#wrapRecSubcuentaDest');
+    if (wrapSubDest && Estado.repRecDest.length === 0) wrapSubDest.style.display = '';
   });
   return div;
 }
@@ -3119,6 +3123,10 @@ function addRepartoRowRec() {
   Estado.repRecDest.push({ subcuenta_id: '', importe: 0, categoria_id: '' });
   renderRepartoRowsRec(subsD, Estado.repRecDest);
   actualizarTotalRepartoRec();
+  // ponytail: dropdown y reparto son excluyentes. Al añadir un destino se
+  // asume que el usuario abandona el modo "subcuenta única".
+  const wrapSubDest = $('#wrapRecSubcuentaDest');
+  if (wrapSubDest) wrapSubDest.style.display = 'none';
 }
 function destinoTotalRec_() {
   const impDest = Number($('#recImporteDest').value || 0);
@@ -3169,6 +3177,9 @@ function actualizarDestinoRecurrente(preferred) {
 
   wrapCuentaDest.style.display = tipo === 'transferencia' ? '' : 'none';
   wrapConversion.style.display = tipo === 'transferencia' ? '' : 'none';
+  // ponytail: Categoria no aplica a transferencias (match con tx sheet).
+  const wrapRecCat = $('#wrapRecCat');
+  if (wrapRecCat) wrapRecCat.style.display = tipo === 'transferencia' ? 'none' : '';
   const tipoTransfer = tipoTransferenciaPresupuestoUI_(cuentaOrigenId, cuentaDestinoValida);
   catLabel.textContent = tipo === 'transferencia'
     ? (tipoTransfer === 'gasto' ? 'Categoría gasto' : (tipoTransfer === 'ingreso' ? 'Categoría ingreso' : 'Categoría (opcional)'))
@@ -3198,6 +3209,8 @@ function actualizarDestinoRecurrente(preferred) {
     Estado.repRecDest = [];
     renderRepartoRowsRec(subsD, []);
     actualizarTotalRepartoRec();
+    // ponytail: subcuenta_destino dropdown también oculto cuando no aplica.
+    if (wrapSubcuentaDest) wrapSubcuentaDest.style.display = 'none';
     return;
   }
   // Cargar desde la plantilla solo en carga inicial (no keepCurrent). Si la
@@ -3216,6 +3229,10 @@ function actualizarDestinoRecurrente(preferred) {
   Estado.repRecDest = Estado.repRecDest.filter(r => validIds.has(r.subcuenta_id));
   renderRepartoRowsRec(subsD, Estado.repRecDest);
   actualizarTotalRepartoRec();
+  // ponytail: dropdown y reparto son excluyentes — si hay reparto, ocultar
+  // el dropdown para que no salga "— Ninguna —" como opción destacada.
+  const hasReparto = Estado.repRecDest.length > 0;
+  if (wrapSubcuentaDest) wrapSubcuentaDest.style.display = hasReparto ? 'none' : '';
 }
 
 function syncFormRecurrente(plantilla) {
