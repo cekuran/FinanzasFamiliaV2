@@ -2203,6 +2203,25 @@ function __selfTestHojasBody_() {
   }
 }
 
+function ejecutarSelfTestAdmin() {
+  requireAdmin_();
+  const resultados = {};
+  const errores = [];
+  const ejecutar = (nombre, prueba) => {
+    const inicio = Date.now();
+    try {
+      resultados[nombre] = { ok: true, mensaje: String(prueba() || ''), ms: Date.now() - inicio };
+    } catch (e) {
+      const mensaje = e && e.message ? e.message : String(e);
+      resultados[nombre] = { ok: false, mensaje, ms: Date.now() - inicio };
+      errores.push({ prueba: nombre, mensaje });
+    }
+  };
+  ejecutar('datos', __selfTest);
+  ejecutar('hojas', __selfTestHojas);
+  return { ok: errores.length === 0, resultados, errores };
+}
+
 function limpiarLinksDe_(username) {
   const restantes = leerHojasUsuarios_().filter(l =>
     String(l.username || '').trim().toLowerCase() !== String(username || '').trim().toLowerCase());

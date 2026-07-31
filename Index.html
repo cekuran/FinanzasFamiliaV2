@@ -871,6 +871,15 @@
           <div id="adminSheetsList" class="body-sm" style="color: var(--on-surface-variant);"></div>
         </div>
       </div>
+
+      <div class="bento" style="margin-top: var(--s-4);">
+        <div class="card col-12">
+          <div class="card-h"><h2>Diagnóstico</h2></div>
+          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Ejecuta las pruebas internas de datos y de routing de hojas. Los datos de prueba se limpian al terminar.</div>
+          <button class="btn btn-secondary btn-sm" id="adminSelfTestBtn" type="button">Ejecutar self-test</button>
+          <pre id="adminSelfTestOut" role="status" aria-live="polite" style="margin-top: var(--s-3); white-space: pre-wrap; word-break: break-word; min-height: 1.2em; color: var(--on-surface-variant);"></pre>
+        </div>
+      </div>
     </section>
 
     <!-- Configuración -->
@@ -3122,6 +3131,33 @@ $('#adminSheetForm').addEventListener('submit', async (e) => {
   }
 });
 
+$('#adminSelfTestBtn').addEventListener('click', async () => {
+  const btn = $('#adminSelfTestBtn');
+  const out = $('#adminSelfTestOut');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Ejecutando...';
+  out.textContent = 'Ejecutando pruebas...';
+  try {
+    const r = await call('ejecutarSelfTestAdmin');
+    const lines = [r.ok ? 'OK: todas las pruebas pasaron' : 'FALLO: revisar errores'];
+    Object.entries(r.resultados || {}).forEach(([nombre, resultado]) => {
+      lines.push(nombre + ': ' + (resultado.ok ? 'OK' : 'FALLO') + ' (' + resultado.ms + ' ms)' + (resultado.mensaje ? ' - ' + resultado.mensaje : ''));
+    });
+    (r.errores || []).forEach(error => lines.push('Error en ' + error.prueba + ': ' + error.mensaje));
+    out.textContent = lines.join('\n');
+    out.style.color = r.ok ? 'var(--primary)' : 'var(--error)';
+    toast(r.ok ? 'Self-test correcto' : 'Self-test con errores');
+  } catch (err) {
+    const mensaje = err && err.message ? err.message : String(err);
+    out.textContent = 'Error: ' + mensaje;
+    out.style.color = 'var(--error)';
+    toast('Error: ' + mensaje);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
 const adminSheetsList = $('#adminSheetsList');
 if (adminSheetsList) {
   adminSheetsList.addEventListener('click', async (e) => {
