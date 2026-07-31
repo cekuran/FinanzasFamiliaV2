@@ -1,23 +1,55 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Deploy GAS script, swap the deployment ID in netlify/index.html, push to Netlify.
+  Build, version, and ship the Finanzas Familia frontend.
 
 .DESCRIPTION
-  Prompts for a version string, runs `clasp deploy -d <version>`, resolves the
-  new deployment id via `clasp list-deployments`, rewrites both Google Apps
-  Script URLs in netlify/index.html, and ships the site to Netlify prod.
+  Two modes:
+    - Default:  prompts for a version tag, runs `clasp deploy -d <tag>`,
+                resolves the new deployment id via `clasp list-deployments`,
+                rewrites both GAS URLs in netlify/index.html, ships to Netlify prod.
+    - Redeploy: skips clasp + regex; just re-pushes netlify/index.html as-is.
 
   Run from the repo root in pwsh.
+
+.PARAMETER Redeploy
+  Skip the GAS deploy + URL rewrite. Just runs `netlify deploy --prod`.
+
+.PARAMETER Help
+  Print this help and exit. Equivalent to `Get-Help .\deploy.ps1 -Full`.
+
+.EXAMPLE
+  .\deploy.ps1
+  Prompts for a version tag, deploys GAS, rewrites the URLs, deploys to Netlify prod.
+
+.EXAMPLE
+  .\deploy.ps1 -Redeploy
+  Re-pushes the existing netlify/index.html without touching the GAS deployment.
+
+.EXAMPLE
+  Get-Help .\deploy.ps1 -Full
+  Shows the full help text via PowerShell.
 #>
+
+[CmdletBinding()]
+param(
+    [switch]$Redeploy,
+    [switch]$Help
+)
+
+if ($Help) {
+    Get-Help $MyInvocation.MyCommand.Path -Full | Out-String | Write-Host
+    return
+}
 
 $ErrorActionPreference = 'Stop'
 
 $repoRoot  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $indexPath = Join-Path $repoRoot 'netlify\index.html'
 
-$version = Read-Host 'Version tag for the deployment'
-if ([string]::IsNullOrWhiteSpace($version)) { throw 'Version is required.' }
+if (-not $Redeploy) {
+    $version = Read-Host 'Version tag for the deployment'
+    if ([string]::IsNullOrWhiteSpace($version)) { throw 'Version is required.' }
 
 Write-Host ">> clasp deploy -d $version"
 & clasp deploy -d "$version" @args
@@ -45,8 +77,14 @@ $updated = [regex]::Replace($index, $urlPattern, "https://script.google.com/macr
 if ($updated -eq $index) { Write-Warning 'No URL replaced — pattern may have shifted.' }
 
 Set-Content -Path $indexPath -Value $updated -NoNewline
+}
+
 Write-Host '>> netlify deploy --prod'
 & netlify deploy --dir=.\netlify --no-build --prod
 if ($LASTEXITCODE -ne 0) { throw "netlify deploy failed ($LASTEXITCODE)" }
 
-Write-Host "Done. Version='$version' id=$newId"
+if ($Redeploy) {
+    Write-Host 'Done. Redeploy only — netlify/index.html unchanged.'
+} else {
+    Write-Host "Done. Version='$version' id=$newId"
+}
