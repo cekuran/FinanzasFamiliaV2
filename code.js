@@ -1360,7 +1360,10 @@ function validarCategoriasTransferencia_(owner, tipoPresupuesto, categoriaId, re
     });
     return;
   }
-  validarCategoriaPorTipo_(catsById, categoriaId, tipoPresupuesto, 'Categoría');
+  const categoriaFallback = String(categoriaId || '').trim();
+  if (categoriaFallback) {
+    validarCategoriaPorTipo_(catsById, categoriaFallback, tipoPresupuesto, 'Categoría');
+  }
 }
 
 function obtenerTransacciones(filtro) {
@@ -1791,7 +1794,7 @@ function obtenerCategoriasResumen(anio, mes) {
     .forEach(c => { cuentasById[c.id] = c; });
   // Reparto destino de transferencias: cada subcuenta se imputa a su propia
   // categoría (gasto o ingreso según la dirección activo/pasivo).
-  // Si el reparto no lleva categorías por subcuenta, cae al categoria_id del tx.
+  // No se usa categoria_id del tx como fallback para evitar el campo separado.
   const porCatRep = {};
   txs.forEach(t => {
     if (t.tipo !== 'transferencia') return;
@@ -1801,26 +1804,14 @@ function obtenerCategoriasResumen(anio, mes) {
     if (tipoPresupuesto === 'neutro') return;
     const rep = parseRepartoDestino_(t.reparto_destino);
     if (rep.length) {
-      let sumaImputada = 0;
       rep.forEach(r => {
         const imp = Number(r.importe || 0);
         if (!(imp > 0)) return;
-        const catId = r.categoria_id || t.categoria_id || '';
+        const catId = r.categoria_id || '';
         const cat = catsById[catId];
         if (!cat || cat.tipo !== tipoPresupuesto) return;
-        if (!catId) return;
         porCatRep[catId] = (porCatRep[catId] || 0) + imp;
-        sumaImputada += imp;
       });
-      const resto = Number(t.importe || 0) - sumaImputada;
-      const catFallback = catsById[t.categoria_id || ''];
-      if (resto > 0.01 && catFallback && catFallback.tipo === tipoPresupuesto) {
-        porCatRep[t.categoria_id] = (porCatRep[t.categoria_id] || 0) + resto;
-      }
-    } else {
-      const cat = catsById[t.categoria_id || ''];
-      if (!cat || cat.tipo !== tipoPresupuesto) return;
-      porCatRep[t.categoria_id] = (porCatRep[t.categoria_id] || 0) + Number(t.importe || 0);
     }
   });
   return cats.map(c => {

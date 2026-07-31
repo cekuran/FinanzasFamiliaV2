@@ -2302,6 +2302,7 @@ function setTipoTx(tipo) {
   $$('[data-tx-tipo]').forEach(b => b.classList.toggle('is-on', b.dataset.txTipo === tipo));
   $('#wrapCuentaDest').style.display = tipo === 'transferencia' ? '' : 'none';
   $('#wrapConversion').style.display = tipo === 'transferencia' ? '' : 'none';
+  $('#wrapCategoria').style.display = tipo === 'transferencia' ? 'none' : '';
   if (tipo === 'transferencia') {
     syncCategoriasTransferenciaTx_('');
   } else {
@@ -2517,7 +2518,7 @@ $('#formTx').addEventListener('submit', async (e) => {
     importe_destino: f.get('importe_destino') || '',
     ratio_conversion: f.get('ratio_conversion') || '',
     reparto_destino: reparto,
-    categoria_id: f.get('categoria_id') || '',
+    categoria_id: Estado.txTipo === 'transferencia' ? '' : (f.get('categoria_id') || ''),
     descripcion: f.get('descripcion') || '',
     estado: f.get('estado'),
     notas: f.get('notas') || ''
