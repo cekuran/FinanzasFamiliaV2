@@ -1862,6 +1862,41 @@ function txRow(t) {
   </div>`;
 }
 
+function tipoTransferenciaPresupuestoUI_(cuentaOrigenId, cuentaDestinoId) {
+  const origen = Estado.bootstrap.cuentas.find(c => c.id === cuentaOrigenId);
+  const destino = Estado.bootstrap.cuentas.find(c => c.id === cuentaDestinoId);
+  if (!origen || !destino) return 'neutro';
+  if (origen.tipo === 'activo' && destino.tipo === 'pasivo') return 'gasto';
+  if (origen.tipo === 'pasivo' && destino.tipo === 'activo') return 'ingreso';
+  return 'neutro';
+}
+
+function categoriasTransferenciaSegunDireccion_(cuentaOrigenId, cuentaDestinoId) {
+  const tipo = tipoTransferenciaPresupuestoUI_(cuentaOrigenId, cuentaDestinoId);
+  if (tipo === 'gasto' || tipo === 'ingreso') {
+    return Estado.bootstrap.categorias.filter(c => c.tipo === tipo);
+  }
+  return Estado.bootstrap.categorias.slice();
+}
+
+function syncCategoriasTransferenciaTx_(categoriaPreferida) {
+  if (Estado.txTipo !== 'transferencia') return;
+  const cuentaOrigenId = $('#txCuenta').value;
+  const cuentaDestinoId = $('#txCuentaDest').value;
+  const cats = categoriasTransferenciaSegunDireccion_(cuentaOrigenId, cuentaDestinoId);
+  const valorActual = categoriaPreferida != null ? categoriaPreferida : $('#txCategoria').value;
+  const seleccionado = cats.some(c => c.id === valorActual) ? valorActual : '';
+  poblarSelect('#txCategoria', cats, seleccionado, c => c.nombre);
+
+  const tipo = tipoTransferenciaPresupuestoUI_(cuentaOrigenId, cuentaDestinoId);
+  const lblCat = $('#wrapCategoria label');
+  if (lblCat) {
+    lblCat.textContent = tipo === 'gasto'
+      ? 'Categoría gasto'
+      : (tipo === 'ingreso' ? 'Categoría ingreso' : 'Categoría (opcional)');
+  }
+}
+
 function renderCuentas() {
   const cuentas = Estado.bootstrap.cuentas;
   $('#cuentasList').innerHTML = cuentas.length ? cuentas.map(c => `
@@ -2147,7 +2182,7 @@ async function renderPresupuesto() {
   $('#presBar').className = 'progress-fill' + (pct >= 100 ? ' danger' : (pct >= 80 ? ' warn' : ''));
   $('#presPct').textContent = pct + '% utilizado';
   $('#presRest').textContent = fmtMoneda(Math.max(0, totalEsperado - totalGastos)) + ' restantes';
-  $('#presAhorro').textContent = fmtMoneda(Number(resumen.ingresos || 0) - totalGastos);
+  $('#presAhorro').textContent = fmtMoneda(Number(resumen.ingresosPresupuesto != null ? resumen.ingresosPresupuesto : resumen.ingresos || 0) - totalGastos);
   $('#presRec').textContent = '-' + fmtMoneda((resumen.proximos || []).reduce((s, p) => s + Number(p.importe || 0), 0));
 
   const cats = Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto');
@@ -2232,10 +2267,10 @@ function openTx(id) {
   setTipoTx(f.tipo || 'gasto');
   poblarSelect('#txCuenta', Estado.bootstrap.cuentas, f.cuenta_id, c => c.nombre + ' (' + c.moneda + ')');
   poblarSelect('#txCuentaDest', Estado.bootstrap.cuentas, f.cuenta_destino_id, c => c.nombre + ' (' + c.moneda + ')');
-  const cats = f.tipo === 'transferencia'
-    ? Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto')
-    : Estado.bootstrap.categorias.filter(c => c.tipo === f.tipo);
-poblarSelect('#txCategoria', cats, f.categoria_id, c => c.nombre);
+  if ((f.tipo || 'gasto') !== 'transferencia') {
+    const cats = Estado.bootstrap.categorias.filter(c => c.tipo === (f.tipo || 'gasto'));
+    poblarSelect('#txCategoria', cats, f.categoria_id, c => c.nombre);
+  }
   $('#txDesc').value = f.descripcion || '';
   $('#txImporteDest').value = f.importe_destino || '';
   $('#txRatio').value = f.ratio_conversion || '';
@@ -2246,6 +2281,7 @@ poblarSelect('#txCategoria', cats, f.categoria_id, c => c.nombre);
   // Pasar `f` a actualizarSubcuentasTx para que pinte el reparto desde
   // reparto_destino (o el legacy subcuenta_destino_id) en el primer render.
   actualizarSubcuentasTx(f);
+  if ((f.tipo || 'gasto') === 'transferencia') syncCategoriasTransferenciaTx_(f.categoria_id || '');
   Estado.recPlantillaId = '';
   if (f.recurrente_id) {
     const rec = Estado.bootstrap.recurrentes.find(r => r.id === f.recurrente_id);
@@ -2266,12 +2302,14 @@ function setTipoTx(tipo) {
   $$('[data-tx-tipo]').forEach(b => b.classList.toggle('is-on', b.dataset.txTipo === tipo));
   $('#wrapCuentaDest').style.display = tipo === 'transferencia' ? '' : 'none';
   $('#wrapConversion').style.display = tipo === 'transferencia' ? '' : 'none';
-  const cats = tipo === 'transferencia'
-    ? Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto')
-    : Estado.bootstrap.categorias.filter(c => c.tipo === tipo);
-  poblarSelect('#txCategoria', cats, '', c => c.nombre);
+  if (tipo === 'transferencia') {
+    syncCategoriasTransferenciaTx_('');
+  } else {
+    const cats = Estado.bootstrap.categorias.filter(c => c.tipo === tipo);
+    poblarSelect('#txCategoria', cats, '', c => c.nombre);
+  }
   const lblCat = $('#wrapCategoria label');
-  if (lblCat) lblCat.textContent = tipo === 'transferencia' ? 'Categoría origen' : 'Categoría';
+  if (lblCat && tipo !== 'transferencia') lblCat.textContent = 'Categoría';
   if (tipo !== 'transferencia') Estado.txRepartoDest = [];
   if (tipo === 'transferencia' && !$('#txRatio').value) $('#txRatio').value = '1';
   actualizarSubcuentasTx();
@@ -2318,6 +2356,7 @@ function actualizarSubcuentasTx(preferred) {
   if (!visDest) {
     Estado.txRepartoDest = [];
     renderRepartoRows(subsD, []);
+    syncCategoriasTransferenciaTx_(preferred ? preferred.categoria_id : undefined);
     actualizarTotalReparto();
     return;
   }
@@ -2331,6 +2370,7 @@ function actualizarSubcuentasTx(preferred) {
   }
   Estado._lastCtaDestinoId = $('#txCuentaDest').value;
   renderRepartoRows(subsD, Estado.txRepartoDest);
+  syncCategoriasTransferenciaTx_(preferred ? preferred.categoria_id : undefined);
   actualizarTotalReparto();
 }
 
@@ -2373,7 +2413,7 @@ function buildRepartoRow(subsD, row, idx) {
   const opts = '<option value="">— Subcuenta —</option>' + subsD.map(s =>
     `<option value="${s.id}" ${s.id === row.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
   ).join('');
-  const catOpts = '<option value="">— Categoría —</option>' + Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto').map(c =>
+  const catOpts = '<option value="">— Categoría —</option>' + categoriasTransferenciaSegunDireccion_($('#txCuenta').value, $('#txCuentaDest').value).map(c =>
     `<option value="${c.id}" ${c.id === row.categoria_id ? 'selected' : ''}>${escape(c.nombre)}</option>`
   ).join('');
   div.innerHTML = `
@@ -2641,9 +2681,9 @@ $('#formCat').addEventListener('submit', async (e) => {
 // ultima_generacion entre openRec y el submit. Permite editar sin perder
 // campos que el sheet no expone (subcuenta_id, cuenta_destino_id, reparto).
 const recDraft = { id: '', plantilla: '', ultima_generacion: '' };
-function poblarCategoriasRecurrente(tipo, categoriaId) {
+function poblarCategoriasRecurrente(tipo, categoriaId, cuentaOrigenId, cuentaDestinoId) {
   const cats = tipo === 'transferencia'
-    ? Estado.bootstrap.categorias.filter(c => c.tipo === 'gasto')
+    ? categoriasTransferenciaSegunDireccion_(cuentaOrigenId || $('#recCuenta').value, cuentaDestinoId || $('#recCuentaDest').value)
     : Estado.bootstrap.categorias.filter(c => c.tipo === tipo);
   poblarSelect('#recCat', cats, categoriaId || '', c => c.nombre);
 }
@@ -2663,7 +2703,10 @@ function actualizarDestinoRecurrente(preferred) {
 
   wrapCuentaDest.style.display = tipo === 'transferencia' ? '' : 'none';
   wrapConversion.style.display = tipo === 'transferencia' ? '' : 'none';
-  catLabel.textContent = tipo === 'transferencia' ? 'Categoría origen' : 'Categoría';
+  const tipoTransfer = tipoTransferenciaPresupuestoUI_(cuentaOrigenId, cuentaDestinoValida);
+  catLabel.textContent = tipo === 'transferencia'
+    ? (tipoTransfer === 'gasto' ? 'Categoría gasto' : (tipoTransfer === 'ingreso' ? 'Categoría ingreso' : 'Categoría (opcional)'))
+    : 'Categoría';
   $('#recCuentaDest').innerHTML = '<option value="">—</option>' + cuentasDestino.map(c =>
     `<option value="${c.id}" ${c.id === cuentaDestinoValida ? 'selected' : ''}>${escape(c.nombre + ' (' + c.moneda + ')')}</option>`
   ).join('');
@@ -2687,7 +2730,7 @@ function syncFormRecurrente(plantilla) {
   const p = plantilla || {};
   const tipo = p.tipo || $('#recTipo').value || 'gasto';
   $('#recTipo').value = tipo;
-  poblarCategoriasRecurrente(tipo, p.categoria_id || '');
+  poblarCategoriasRecurrente(tipo, p.categoria_id || '', p.cuenta_id || '', p.cuenta_destino_id || '');
   actualizarDestinoRecurrente(p);
   $('#recImporteDest').value = p.importe_destino || '';
   $('#recRatio').value = p.ratio_conversion || '';
@@ -2710,11 +2753,17 @@ function openRec(id) {
 }
 $('#recCancel').addEventListener('click', closeAllSheets);
 $('#recTipo').addEventListener('change', () => {
-  poblarCategoriasRecurrente($('#recTipo').value, '');
+  poblarCategoriasRecurrente($('#recTipo').value, '', $('#recCuenta').value, $('#recCuentaDest').value);
   actualizarDestinoRecurrente({ keepCurrent: true });
 });
-$('#recCuenta').addEventListener('change', () => actualizarDestinoRecurrente({ keepCurrent: true }));
-$('#recCuentaDest').addEventListener('change', () => actualizarDestinoRecurrente({ keepCurrent: true }));
+$('#recCuenta').addEventListener('change', () => {
+  actualizarDestinoRecurrente({ keepCurrent: true });
+  poblarCategoriasRecurrente($('#recTipo').value, $('#recCat').value, $('#recCuenta').value, $('#recCuentaDest').value);
+});
+$('#recCuentaDest').addEventListener('change', () => {
+  actualizarDestinoRecurrente({ keepCurrent: true });
+  poblarCategoriasRecurrente($('#recTipo').value, $('#recCat').value, $('#recCuenta').value, $('#recCuentaDest').value);
+});
 $('#formRec').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);

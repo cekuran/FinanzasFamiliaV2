@@ -1323,6 +1323,46 @@ function parseRepartoDestino_(raw) {
     .filter(r => r.subcuenta_id && r.importe > 0);
 }
 
+function tipoTransferenciaPresupuesto_(cuentasById, cuentaOrigenId, cuentaDestinoId) {
+  const origen = cuentasById[String(cuentaOrigenId || '')];
+  const destino = cuentasById[String(cuentaDestinoId || '')];
+  if (!origen || !destino) return 'neutro';
+  if (origen.tipo === 'activo' && destino.tipo === 'pasivo') return 'gasto';
+  if (origen.tipo === 'pasivo' && destino.tipo === 'activo') return 'ingreso';
+  return 'neutro';
+}
+
+function tipoTransferenciaPresupuestoTx_(t, cuentasById) {
+  if (!t || t.tipo !== 'transferencia') return 'neutro';
+  return tipoTransferenciaPresupuesto_(cuentasById, t.cuenta_id, t.cuenta_destino_id);
+}
+
+function validarCategoriaPorTipo_(catsById, categoriaId, tipoEsperado, label) {
+  const id = String(categoriaId || '').trim();
+  if (!id) throw new Error((label || 'Categoría') + ' obligatoria para transferencias de ' + tipoEsperado);
+  const cat = catsById[id];
+  if (!cat) throw new Error((label || 'Categoría') + ' no encontrada');
+  if (cat.tipo !== tipoEsperado) {
+    throw new Error((label || 'Categoría') + ' debe ser de tipo ' + tipoEsperado);
+  }
+}
+
+function validarCategoriasTransferencia_(owner, tipoPresupuesto, categoriaId, reparto) {
+  if (tipoPresupuesto !== 'gasto' && tipoPresupuesto !== 'ingreso') return;
+  const catsById = {};
+  leerHoja('Categorias')
+    .filter(c => c.owner === owner)
+    .forEach(c => { catsById[c.id] = c; });
+
+  if (reparto && reparto.length) {
+    reparto.forEach((r, i) => {
+      validarCategoriaPorTipo_(catsById, r.categoria_id, tipoPresupuesto, 'Categoría del destino ' + (i + 1));
+    });
+    return;
+  }
+  validarCategoriaPorTipo_(catsById, categoriaId, tipoPresupuesto, 'Categoría');
+}
+
 function obtenerTransacciones(filtro) {
   filtro = filtro || {};
   let txs = leerHoja('Transacciones');
@@ -1358,20 +1398,21 @@ function guardarTransaccion(tx) {
   const txs = leerHoja('Transacciones');
   const existente = tx.id ? txs.find(t => t.id === tx.id) : null;
   const ownerTx = (existente && existente.owner) ? existente.owner : owner;
+  const cuentasHoja = leerHoja('Cuentas').filter(c => c.owner === ownerTx);
   let subcuenta_id = '';
   if (tx.subcuenta_id) {
-    const sub = leerHoja('Cuentas').find(c => c.owner === ownerTx && c.id === tx.subcuenta_id && c.parent_id === tx.cuenta_id);
+    const sub = cuentasHoja.find(c => c.id === tx.subcuenta_id && c.parent_id === tx.cuenta_id);
     if (!sub) throw new Error('Subcuenta no encontrada o no pertenece a la cuenta');
     subcuenta_id = tx.subcuenta_id;
   }
   let subcuenta_destino_id = '';
   let repartoDestinoJson = '';
+  let repartoDestinoNormalizado = [];
   if (tipo === 'transferencia' && tx.cuenta_destino_id) {
     const repartoRaw = Array.isArray(tx.reparto_destino) ? tx.reparto_destino : null;
-    const cuentasHoja = leerHoja('Cuentas');
     if (repartoRaw && repartoRaw.length) {
       const subValidas = new Set(
-        cuentasHoja.filter(c => c.owner === ownerTx && c.parent_id === tx.cuenta_destino_id).map(c => c.id)
+        cuentasHoja.filter(c => c.parent_id === tx.cuenta_destino_id).map(c => c.id)
       );
       const visto = new Set();
       const normalizado = [];
@@ -1392,16 +1433,23 @@ function guardarTransaccion(tx) {
         throw new Error('La suma del reparto (' + suma.toFixed(2) + ') no coincide con el importe destino (' + totalEsperado.toFixed(2) + ')');
       }
       repartoDestinoJson = JSON.stringify(normalizado);
+      repartoDestinoNormalizado = normalizado;
       // Backfill del campo legacy para que filtros por subcuenta sigan
       // encontrando la tx mientras conviven datos nuevos y viejos.
       subcuenta_destino_id = normalizado[0].subcuenta_id;
     } else if (tx.subcuenta_destino_id) {
-      const subd = cuentasHoja.find(c => c.owner === ownerTx && c.id === tx.subcuenta_destino_id && c.parent_id === tx.cuenta_destino_id);
+      const subd = cuentasHoja.find(c => c.id === tx.subcuenta_destino_id && c.parent_id === tx.cuenta_destino_id);
       if (!subd) throw new Error('Subcuenta destino no encontrada o no pertenece a la cuenta destino');
       subcuenta_destino_id = tx.subcuenta_destino_id;
     }
   } else if (tx.subcuenta_destino_id) {
     throw new Error('Subcuenta destino solo aplica a transferencias');
+  }
+  if (tipo === 'transferencia') {
+    const cuentasById = {};
+    cuentasHoja.forEach(c => { cuentasById[c.id] = c; });
+    const tipoPresupuesto = tipoTransferenciaPresupuesto_(cuentasById, tx.cuenta_id, tx.cuenta_destino_id);
+    validarCategoriasTransferencia_(ownerTx, tipoPresupuesto, tx.categoria_id || '', repartoDestinoNormalizado);
   }
   const fila = {
     owner: ownerTx,
@@ -1488,6 +1536,11 @@ function validarPlantillaRecurrente_(owner, plantilla) {
       throw new Error('La suma del reparto no coincide con el importe destino');
     }
   }
+
+  const cuentasById = {};
+  cuentas.forEach(c => { cuentasById[c.id] = c; });
+  const tipoPresupuesto = tipoTransferenciaPresupuesto_(cuentasById, p.cuenta_id, p.cuenta_destino_id);
+  validarCategoriasTransferencia_(owner, tipoPresupuesto, p.categoria_id || '', reparto);
 
   if (p.ratio_conversion && !(Number(p.importe_destino) > 0)) {
     throw new Error('Falta importe destino o ratio de conversión');
@@ -1666,13 +1719,22 @@ function obtenerResumen(anio, mes) {
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
   const txs = leerHoja('Transacciones');
+  const cuentasById = {};
+  leerHoja('Cuentas')
+    .filter(c => c.owner === owner)
+    .forEach(c => { cuentasById[c.id] = c; });
   const enMes = txs.filter(t => {
     const f = new Date(t.fecha);
     return f.getFullYear() === Number(a) && (f.getMonth() + 1) === Number(m);
   });
   const ingresos = enMes.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + Number(t.importe || 0), 0);
   const gastos = enMes.filter(t => t.tipo === 'gasto').reduce((s, t) => s + Number(t.importe || 0), 0);
-  const transferencias = enMes.filter(t => t.tipo === 'transferencia').reduce((s, t) => s + Number(t.importe || 0), 0);
+  const transferenciasGasto = enMes
+    .filter(t => t.tipo === 'transferencia' && tipoTransferenciaPresupuestoTx_(t, cuentasById) === 'gasto')
+    .reduce((s, t) => s + Number(t.importe || 0), 0);
+  const transferenciasIngreso = enMes
+    .filter(t => t.tipo === 'transferencia' && tipoTransferenciaPresupuestoTx_(t, cuentasById) === 'ingreso')
+    .reduce((s, t) => s + Number(t.importe || 0), 0);
   const pendiente = enMes.filter(t => t.estado === 'pendiente').length;
   const vencido = enMes.filter(t => t.estado === 'vencido').length;
   // Evolución últimos 12 meses
@@ -1699,24 +1761,44 @@ function obtenerResumen(anio, mes) {
       return null;
     }
   }).filter(Boolean);
-  return { anio: a, mes: m, ingresos, gastos, gastosPresupuesto: gastos + transferencias, neto: ingresos - gastos, pendiente, vencido, evol, proximos };
+  return {
+    anio: a,
+    mes: m,
+    ingresos,
+    ingresosPresupuesto: ingresos + transferenciasIngreso,
+    gastos,
+    gastosPresupuesto: gastos + transferenciasGasto,
+    neto: ingresos - gastos,
+    pendiente,
+    vencido,
+    evol,
+    proximos
+  };
 }
 
 function obtenerCategoriasResumen(anio, mes) {
   const owner = username_();
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
-  const txs = leerHoja('Transacciones').filter(t => ['gasto', 'transferencia'].includes(t.tipo));
+  const txs = leerHoja('Transacciones').filter(t => ['gasto', 'ingreso', 'transferencia'].includes(t.tipo));
   const ps = leerHoja('Presupuestos').filter(p => p.owner === owner);
   const cats = obtenerCategorias();
+  const catsById = {};
+  cats.forEach(c => { catsById[c.id] = c; });
+  const cuentasById = {};
+  leerHoja('Cuentas')
+    .filter(c => c.owner === owner)
+    .forEach(c => { cuentasById[c.id] = c; });
   // Reparto destino de transferencias: cada subcuenta se imputa a su propia
-  // categoría. Si el reparto no lleva categorías por subcuenta, cae al
-  // categoria_id del tx (categoría del origen / transferencia sin desglose).
+  // categoría (gasto o ingreso según la dirección activo/pasivo).
+  // Si el reparto no lleva categorías por subcuenta, cae al categoria_id del tx.
   const porCatRep = {};
   txs.forEach(t => {
     if (t.tipo !== 'transferencia') return;
     const f = new Date(t.fecha);
     if (f.getFullYear() !== Number(a) || (f.getMonth() + 1) !== Number(m)) return;
+    const tipoPresupuesto = tipoTransferenciaPresupuestoTx_(t, cuentasById);
+    if (tipoPresupuesto === 'neutro') return;
     const rep = parseRepartoDestino_(t.reparto_destino);
     if (rep.length) {
       let sumaImputada = 0;
@@ -1724,15 +1806,20 @@ function obtenerCategoriasResumen(anio, mes) {
         const imp = Number(r.importe || 0);
         if (!(imp > 0)) return;
         const catId = r.categoria_id || t.categoria_id || '';
+        const cat = catsById[catId];
+        if (!cat || cat.tipo !== tipoPresupuesto) return;
         if (!catId) return;
         porCatRep[catId] = (porCatRep[catId] || 0) + imp;
         sumaImputada += imp;
       });
       const resto = Number(t.importe || 0) - sumaImputada;
-      if (resto > 0.01 && t.categoria_id) {
+      const catFallback = catsById[t.categoria_id || ''];
+      if (resto > 0.01 && catFallback && catFallback.tipo === tipoPresupuesto) {
         porCatRep[t.categoria_id] = (porCatRep[t.categoria_id] || 0) + resto;
       }
-    } else if (t.categoria_id) {
+    } else {
+      const cat = catsById[t.categoria_id || ''];
+      if (!cat || cat.tipo !== tipoPresupuesto) return;
       porCatRep[t.categoria_id] = (porCatRep[t.categoria_id] || 0) + Number(t.importe || 0);
     }
   });
@@ -1811,12 +1898,11 @@ function __selfTestBody_(owner) {
   const parentWithBoth = withAnother.find(c => c.id === parent.id);
   const anotherId = parentWithBoth.subcuentas.find(s => s.nombre === anotherName).id;
   if (!parentWithBoth.subcuentas.some(s => s.id === subId)) throw new Error('Crear una subcuenta reemplazó la anterior');
-  // La validación rechaza mismo origen/destino, así que creamos una cuenta
-  // destino separada con sus propias subcuentas para probar transferencias
-  // y repartos entre cuentas distintas.
+  // Creamos una cuenta destino pasiva para validar el caso activo -> pasivo
+  // (debe computar como gasto en presupuesto).
   const destParent = guardarCuenta({
     nombre: 'self-dest-' + Utilities.getUuid().slice(0, 8),
-    tipo: 'activo', moneda: 'EUR', saldo_inicial: 0
+    tipo: 'pasivo', moneda: 'EUR', saldo_inicial: 0
   }).find(c => c.nombre.startsWith('self-dest-'));
   const destSubName = 'self-dest-sub-' + Utilities.getUuid().slice(0, 8);
   const withDestSub = guardarCuenta({ parent_id: destParent.id, nombre: destSubName, saldo_inicial: 0 });
@@ -1835,6 +1921,22 @@ function __selfTestBody_(owner) {
   if (gastoPresupuestoDespues !== gastoPresupuestoAntes + 20) throw new Error('Transferencia no sumó al gasto actual: ' + gastoPresupuestoDespues);
   const targetAfter = obtenerCuentas().find(c => c.id === destParent.id).subcuentas.find(s => s.id === destSubId);
   if (targetAfter.saldo !== 20) throw new Error('Transferencia no acreditó subcuenta destino: ' + targetAfter.saldo);
+
+  // Transferencia pasivo -> activo: debe computar como ingreso de presupuesto.
+  const catIngreso = obtenerCategorias().find(c => c.tipo === 'ingreso');
+  if (!catIngreso) throw new Error('No hay categoría de ingreso para self-test');
+  const ingresoPresupuestoAntes = obtenerResumen().ingresosPresupuesto;
+  const txTransferIngreso = guardarTransaccion({
+    tipo: 'transferencia', importe: 15,
+    cuenta_id: destParent.id,
+    cuenta_destino_id: parent.id,
+    categoria_id: catIngreso.id,
+    descripcion: 'self-income-transfer', fecha: isoHoy_()
+  });
+  const ingresoPresupuestoDespues = obtenerResumen().ingresosPresupuesto;
+  if (ingresoPresupuestoDespues !== ingresoPresupuestoAntes + 15) {
+    throw new Error('Transferencia pasivo→activo no sumó al ingreso presupuesto: ' + ingresoPresupuestoDespues);
+  }
   const after = reordenarSubcuentas(parent.id, [anotherId, subId]);
   const parentAfter = after.find(c => c.id === parent.id);
   const testOrder = parentAfter.subcuentas.filter(s => s.id === anotherId || s.id === subId);
@@ -1854,8 +1956,8 @@ function __selfTestBody_(owner) {
     cuenta_id: parent.id,
     cuenta_destino_id: destParent.id,
     reparto_destino: [
-      { subcuenta_id: splitSubA, importe: 30 },
-      { subcuenta_id: splitSubB, importe: 20 }
+      { subcuenta_id: splitSubA, importe: 30, categoria_id: cat[0].id },
+      { subcuenta_id: splitSubB, importe: 20, categoria_id: cat[0].id }
     ],
     descripcion: 'self-split-transfer', fecha: isoHoy_()
   });
@@ -1871,8 +1973,8 @@ function __selfTestBody_(owner) {
       tipo: 'transferencia', importe: 50,
       cuenta_id: parent.id, cuenta_destino_id: destParent.id,
       reparto_destino: [
-        { subcuenta_id: splitSubA, importe: 30 },
-        { subcuenta_id: splitSubB, importe: 15 }
+        { subcuenta_id: splitSubA, importe: 30, categoria_id: cat[0].id },
+        { subcuenta_id: splitSubB, importe: 15, categoria_id: cat[0].id }
       ],
       descripcion: 'self-split-bad', fecha: isoHoy_()
     });
@@ -1908,6 +2010,7 @@ function __selfTestBody_(owner) {
   // Cleanup
   eliminarTransaccion(txSub.id);
   eliminarTransaccion(txTransfer.id);
+  eliminarTransaccion(txTransferIngreso.id);
   eliminarTransaccion(txSplit.id);
   eliminarCuenta(subId);
   eliminarCuenta(anotherId);
