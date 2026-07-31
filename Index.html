@@ -370,7 +370,7 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    padding: 8px 4px;
+    padding: 4px 4px;
     border-radius: var(--r-md);
     color: var(--on-surface-variant);
     font-size: 11px;
@@ -390,7 +390,7 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    padding: 8px 4px;
+    padding: 4px 4px;
     border-radius: var(--r-md);
     color: var(--on-surface-variant);
     font-size: 11px;
@@ -2137,19 +2137,23 @@ function renderMovimientos() {
       ? `${escape(cta ? cta.nombre : '—')}${sub ? ' · ' + escape(sub.nombre) : ''}${destinoHtml}`
       : `${escape(cta ? cta.nombre : '—')}${destinoHtml}`;
     const pill = t.estado === 'conciliado' ? 'pill-primary' : t.estado === 'vencido' ? 'pill-error' : t.estado === 'pagado' ? 'pill-secondary' : 'pill-outline';
-    // Una pill por categoría: en transferencias con reparto, una por sub-cuenta destino.
+    // Una pill por categoría única: en transferencias con reparto, dedupe por id.
     const catEntries = isTransfer && reparto.length
       ? reparto.map(r => r.categoria_id ? Estado.bootstrap.categorias.find(c => c.id === r.categoria_id) : null)
       : [cat || null];
-    const catsHtml = catEntries.map(c => c
-      ? `<span class="pill" style="background: ${c.color}33; color: ${c.color};">${escape(c.nombre)}</span>`
-      : '').join('') || '—';
+    const seen = new Set();
+    const pillsHtml = catEntries.reduce((acc, c) => {
+      if (!c || seen.has(c.id)) return acc;
+      seen.add(c.id);
+      return acc + `<span class="pill" style="background: ${c.color}33; color: ${c.color};">${escape(c.nombre)}</span>`;
+    }, '');
+    const catsHtml = pillsHtml || '—';
     return `<tr>
       <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat)}</div></td>
       <td>${escape(t.fecha)}</td>
       <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}<div class="body-sm" style="color: var(--on-surface-variant);">Alta: ${escape(t.owner || '—')} · Última edición: ${escape(t.ultima_edicion_por || t.owner || '—')} · ${escape(fmtFechaHora(t.fecha_ultima_edicion))}</div></td>
       <td>${cuentaHtml}</td>
-      <td>${catsHtml}</td>
+      <td><div style="display: flex; flex-wrap: wrap; gap: 4px;">${catsHtml}</div></td>
       <td><span class="pill ${pill}">${escape(t.estado)}</span></td>
       <td class="num" style="color: ${color};">${sign}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</td>
       <td class="actions">
