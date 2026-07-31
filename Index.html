@@ -325,8 +325,9 @@
   .subcta-row { display: flex; align-items: center; gap: var(--s-2); padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-container-lowest); cursor: grab; }
   .subcta-row.is-dragging { opacity: 0.4; }
   .subcta-row.is-drop-target { box-shadow: 0 -2px 0 var(--primary); }
-  .acct.is-dragging { opacity: 0.4; }
-  .acct.is-drop-target { box-shadow: 0 -3px 0 var(--primary); }
+  .acct.is-dragging, .cat-card.is-dragging { opacity: 0.4; }
+  .acct.is-drop-target, .cat-card.is-drop-target { box-shadow: 0 -3px 0 var(--primary); }
+  .cat-card { cursor: grab; }
   .subcta-grip { color: var(--on-surface-variant); font-size: 16px; line-height: 1; cursor: grab; padding: 0 4px; user-select: none; }
   .subcta-name { flex: 1; font-size: 13px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .subcta-balance { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -2189,7 +2190,7 @@ async function doConciliar() {
 function renderCategorias() {
   const cats = Estado.bootstrap.categorias;
   $('#catList').innerHTML = cats.length ? cats.map(c => `
-    <div class="card col-4 card-pad-md" style="display: flex; align-items: center; gap: var(--s-3);">
+    <div class="card col-4 card-pad-md cat-card" draggable="true" data-cat-id="${c.id}" style="display: flex; align-items: center; gap: var(--s-3);">
       <div class="tx-ico" style="${tintCat(c.color)}">${icoCat(c)}</div>
       <div style="flex: 1;">
         <div class="title-sm">${escape(c.nombre)}</div>
@@ -2205,6 +2206,7 @@ function renderCategorias() {
     await call('eliminarCategoria', b.dataset.catDel);
     await recargar(); toast('Categoría eliminada');
   }));
+  wireCategoryDragReorder();
 }
 
 // === Presupuesto ===
@@ -2726,6 +2728,49 @@ function wireDragReorder() {
       try {
         Estado.bootstrap.cuentas = await call('reordenarSubcuentas', parentId, rows.map(r => r.dataset.subId));
         refrescarCuentas();
+        toast('Orden guardado');
+      } catch (err) {
+        toast('Error: ' + err.message);
+        await recargar();
+      }
+    });
+  });
+}
+
+function wireCategoryDragReorder() {
+  const list = $('#catList');
+  $$('.cat-card', list).forEach(card => {
+    card.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', card.dataset.catId);
+      e.dataTransfer.effectAllowed = 'move';
+      card.classList.add('is-dragging');
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('is-dragging');
+      $$('.cat-card', list).forEach(c => c.classList.remove('is-drop-target'));
+    });
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      card.classList.add('is-drop-target');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('is-drop-target'));
+    card.addEventListener('drop', async e => {
+      e.preventDefault();
+      const srcId = e.dataTransfer.getData('text/plain');
+      const dstId = card.dataset.catId;
+      card.classList.remove('is-drop-target');
+      if (srcId === dstId) return;
+      const cards = Array.from(list.querySelectorAll('.cat-card'));
+      const srcIdx = cards.findIndex(c => c.dataset.catId === srcId);
+      const dstIdx = cards.findIndex(c => c.dataset.catId === dstId);
+      const moved = cards.splice(srcIdx, 1)[0];
+      cards.splice(dstIdx, 0, moved);
+      cards.forEach(c => list.appendChild(c));
+      try {
+        Estado.bootstrap.categorias = await call('reordenarCategorias', cards.map(c => c.dataset.catId));
+        poblarFiltros();
+        renderCategorias();
         toast('Orden guardado');
       } catch (err) {
         toast('Error: ' + err.message);

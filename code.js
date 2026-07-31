@@ -1412,6 +1412,20 @@ function reordenarCuentas(ids) {
 }
 
 // ───────── Categorías ─────────
+function reordenarCategorias(ids) {
+  const owner = username_();
+  if (!Array.isArray(ids)) throw new Error('Parámetros inválidos');
+  const todas = leerHoja('Categorias');
+  ids.forEach(id => {
+    if (!todas.some(c => c.owner === owner && c.id === id)) throw new Error('Categoría inválida');
+  });
+  ids.forEach((id, i) => {
+    todas.find(c => c.owner === owner && c.id === id).orden = i + 1;
+  });
+  escribirHoja('Categorias', todas);
+  return obtenerCategorias();
+}
+
 function obtenerCategorias() {
   const owner = username_();
   return leerHoja('Categorias').filter(c => c.owner === owner).sort((a, b) => a.orden - b.orden);
@@ -2069,6 +2083,12 @@ function __selfTestBody_(owner) {
   const parentAfter = after.find(c => c.id === parent.id);
   const testOrder = parentAfter.subcuentas.filter(s => s.id === anotherId || s.id === subId);
   if (testOrder.length !== 2 || testOrder[0].id !== anotherId) throw new Error('Reorder falló');
+  if (cat.length >= 2) {
+    const ordenOriginal = cat.map(c => c.id);
+    const reordenadas = reordenarCategorias([cat[1].id, cat[0].id, ...ordenOriginal.slice(2)]);
+    if (reordenadas[0].id !== cat[1].id) throw new Error('Reorder categorías falló');
+    reordenarCategorias(ordenOriginal);
+  }
 
   // Transferencia con reparto a varias subcuentas destino: la suma del reparto
   // debe coincidir con el importe total, y cada subcuenta destino recibe su parte.
