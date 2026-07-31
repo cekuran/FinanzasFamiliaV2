@@ -1027,7 +1027,7 @@ function obtenerCuentas() {
   const txs = leerHoja('Transacciones');
   const fmtMes = d => Utilities.formatDate(d, ssActiva_().getSpreadsheetTimeZone(), 'yyyy-MM');
 
-  const top = cuentas.filter(c => !c.parent_id);
+  const top = cuentas.filter(c => !c.parent_id).sort((a, b) => Number(a.orden || 99) - Number(b.orden || 99));
   return top.map(c => {
     const subs = cuentas.filter(x => x.parent_id === c.id);
     const subIds = new Set(subs.map(x => x.id));
