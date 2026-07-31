@@ -1797,9 +1797,9 @@ function renderDashboard() {
   const resumen = Estado.bootstrap.resumen || {};
   const cuentas = Estado.bootstrap.cuentas;
   const txs = Estado.bootstrap.transacciones.slice(0, 5);
-  const balance = cuentas.reduce((s, c) => s + (c.tipo === 'activo' ? Number(c.saldo || 0) : -Number(c.saldo || 0)), 0);
+  const balance = cuentas.reduce((s, c) => s + Number(c.saldo || 0), 0);
   $('#dashBalance').textContent = fmtMoneda(balance);
-  $('#dashBalanceSub').textContent = 'Suma activos − pasivos en EUR';
+  $('#dashBalanceSub').textContent = '';
   const ingresos = Number(resumen.ingresos || 0);
   const gastos = Number(resumen.gastos || 0);
   const neto = ingresos - gastos;
