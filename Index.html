@@ -349,20 +349,63 @@
   .progress-fill.danger { background: var(--error); }
 
   /* === Bottom nav === */
-  .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; background: var(--surface-container-lowest); border-top: 1px solid var(--surface-container); display: flex; justify-content: space-around; padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0)); }
+  .bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: var(--surface-container-lowest);
+    border-top: 1px solid var(--surface-container);
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0));
+  }
   @media (min-width: 900px) { .bottom-nav { display: none; } }
-  .bn-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 12px; border-radius: var(--r-md); color: var(--on-surface-variant); font-size: 11px; font-weight: 600; }
+  .bn-item {
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 4px;
+    border-radius: var(--r-md);
+    color: var(--on-surface-variant);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    text-align: center;
+  }
   .bn-item.is-active { color: var(--primary); background: var(--primary-container); color: var(--on-primary-container); }
   .bn-item .ico { width: 22px; height: 22px; }
 
   /* Más: trigger button + popup menu anchored above the bottom nav */
-  .more-wrap { position: relative; display: flex; flex-direction: column; align-items: center; }
-  .more-trigger { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 12px; border-radius: var(--r-md); color: var(--on-surface-variant); font-size: 11px; font-weight: 600; background: transparent; cursor: pointer; }
+  .more-wrap { position: relative; min-width: 0; width: 100%; display: flex; flex-direction: column; align-items: center; }
+  .more-trigger {
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 4px;
+    border-radius: var(--r-md);
+    color: var(--on-surface-variant);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    text-align: center;
+    background: transparent;
+    cursor: pointer;
+  }
   .more-wrap.is-active .more-trigger,
   .more-trigger.is-open { color: var(--on-primary-container); background: var(--primary-container); }
   .more-dropdown {
-    position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+    position: absolute; bottom: calc(100% + 10px); right: 0;
     z-index: 120; min-width: 200px; padding: var(--s-2);
+    max-width: min(260px, calc(100vw - 16px));
     background: var(--surface-container-lowest);
     border: 1px solid var(--surface-container);
     border-radius: var(--r-lg);
@@ -927,13 +970,16 @@
     <div class="bn-item" data-route="cuentas"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v4H4zm0 6h16v10H4zm3 3h6v2H7z"/></svg>Cuentas</div>
     <div class="bn-item" data-route="movimientos"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v3H4zm0 5h16v2H4zm0 4h10v2H4z"/></svg>Movimientos</div>
     <div class="bn-item" data-route="presupuesto"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M5 21V8l7-5 7 5v13h-4v-7H9v7z"/></svg>Presupuesto</div>
-    <div class="bn-item" data-route="conciliar"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>Conciliar</div>
     <div class="more-wrap">
       <button class="more-trigger" type="button" id="moreMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Más opciones">
         <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
         Más
       </button>
       <div class="more-dropdown" id="moreDropdown" role="menu">
+        <button class="more-dropdown-item" type="button" data-route="conciliar" role="menuitem">
+          <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>
+          Conciliar
+        </button>
         <button class="more-dropdown-item" type="button" data-route="recurrentes" role="menuitem">
           <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l5-4-5-4v3H5v6h2zm10 10H7v-3l-5 4 5 4v-3h12v-6h-2z"/></svg>
           Recurrentes
@@ -1738,7 +1784,7 @@ function closeMoreMenu() {
 function updateMoreMenuActive(route) {
   const wrap = $('.more-wrap');
   if (!wrap) return;
-  wrap.classList.toggle('is-active', ['recurrentes', 'categorias', 'admin'].includes(route));
+  wrap.classList.toggle('is-active', ['conciliar', 'recurrentes', 'categorias', 'admin'].includes(route));
 }
 
 let _txSyncToken = 0;
