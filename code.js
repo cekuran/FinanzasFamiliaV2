@@ -986,6 +986,7 @@ function bootstrapBase() {
   migrarEsquema();
   asegurarUsuarios_();
   sembrar(owner);
+  normalizarCuentasSinSubcuentas_(owner);
   normalizarSubcuentasHuerfanas_(owner);
   generarRecurrentesPendientes_(owner, new Date());
   return {
@@ -1195,6 +1196,52 @@ function normalizarSubcuentasHuerfanas_(owner) {
   return cambios;
 }
 
+function crearSubcuentaDefault_(owner, parent) {
+  if (!parent || parent.parent_id) return null;
+  const fila = {
+    owner: owner,
+    id: uid_('cta'),
+    parent_id: parent.id,
+    nombre: 'General',
+    tipo: parent.tipo,
+    moneda: parent.moneda,
+    icono: 'savings',
+    saldo_inicial: 0,
+    orden: 1,
+    oculta: false,
+    fecha_creacion: isoAhora_()
+  };
+  upsertFila('Cuentas', fila);
+  return fila;
+}
+
+function asegurarSubcuentaDefaultCuenta_(owner, parentId) {
+  const todas = leerHoja('Cuentas').filter(c => c.owner === owner);
+  const parent = todas.find(c => c.id === parentId && !c.parent_id);
+  if (!parent) return false;
+  const subs = todas.filter(c => c.parent_id === parentId);
+  if (subs.length > 0) return false;
+  crearSubcuentaDefault_(owner, parent);
+  return true;
+}
+
+function normalizarCuentasSinSubcuentas_(owner) {
+  const todas = leerHoja('Cuentas').filter(c => c.owner === owner);
+  const top = todas.filter(c => !c.parent_id);
+  const byParent = {};
+  todas.filter(c => c.parent_id).forEach(s => {
+    byParent[s.parent_id] = (byParent[s.parent_id] || 0) + 1;
+  });
+  let cambios = false;
+  top.forEach(parent => {
+    if (!byParent[parent.id]) {
+      crearSubcuentaDefault_(owner, parent);
+      cambios = true;
+    }
+  });
+  return cambios;
+}
+
 function guardarCuenta(cuenta) {
   const owner = username_();
   if (!cuenta || !cuenta.nombre) throw new Error('Nombre de cuenta obligatorio');
@@ -1228,6 +1275,7 @@ function guardarCuenta(cuenta) {
     fecha_creacion: (existente && existente.fecha_creacion) || isoAhora_()
   };
   upsertFila('Cuentas', fila);
+  if (!fila.parent_id) asegurarSubcuentaDefaultCuenta_(owner, fila.id);
   return obtenerCuentas();
 }
 
@@ -1237,21 +1285,28 @@ function eliminarCuenta(id) {
   const cuenta = todas.find(c => c.id === id);
   if (!cuenta) throw new Error('Cuenta no encontrada');
   const esSub = !!cuenta.parent_id;
-  // ponytail: el chequeo de "tiene subcuentas" solo aplica a top-level.
-  // Las subcuentas no admiten anidamiento en el modelo, así que el check
-  // nunca debería disparar para ellas (si dispara, hay corrupción de datos,
-  // pero bloqueamos igual para que el usuario vea el problema).
+  const idsAEliminar = new Set([id]);
   if (!esSub) {
-    const tieneSubs = todas.some(c => c.parent_id === id);
-    if (tieneSubs) throw new Error('La cuenta tiene subcuentas. Elimínalas primero.');
+    todas.filter(c => c.parent_id === id).forEach(s => idsAEliminar.add(s.id));
   }
+  if (esSub) {
+    const subsHermanas = todas.filter(c => c.parent_id === cuenta.parent_id);
+    if (subsHermanas.length <= 1) throw new Error('Cada cuenta debe tener al menos una subcuenta.');
+  }
+  // Top-level: se permite borrar junto con sus subcuentas para no romper
+  // la regla de "siempre al menos una subcuenta" mientras la cuenta exista.
   const txs = leerHoja('Transacciones').filter(t => (
     (t.cuenta_id === id || t.cuenta_destino_id === id) ||
     (esSub && t.subcuenta_id === id && t.cuenta_id === cuenta.parent_id) ||
     (esSub && t.subcuenta_destino_id === id && t.cuenta_destino_id === cuenta.parent_id)
   ));
   if (txs.length) throw new Error((esSub ? 'La subcuenta' : 'La cuenta') + ' tiene ' + txs.length + ' movimientos. Reasígnalos o elimínalos primero.');
-  eliminarFila('Cuentas', owner, id);
+  if (esSub) {
+    eliminarFila('Cuentas', owner, id);
+  } else {
+    const restantes = leerHoja('Cuentas').filter(c => !(c.owner === owner && idsAEliminar.has(c.id)));
+    escribirHoja('Cuentas', restantes);
+  }
   return obtenerCuentas();
 }
 
