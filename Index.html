@@ -1046,14 +1046,7 @@
     </div>
     <div id="wrapRecurrente" style="display: none; flex-direction: column; gap: var(--s-2);">
       <div class="field-row">
-        <div class="field"><label>Periodicidad</label>
-          <select class="select" id="txRecPeriodo">
-            <option value="mensual">Mensual</option>
-            <option value="semanal">Semanal</option>
-            <option value="diario">Diario</option>
-            <option value="anual">Anual</option>
-          </select>
-        </div>
+        <div class="field"><label>Cada (meses)</label><input class="input" type="number" min="1" max="12" id="txRecPeriodoMeses" value="1"></div>
         <div class="field"><label>Día del mes</label><input class="input" type="number" min="1" max="31" id="txRecDia" value="1"></div>
       </div>
     </div>
@@ -1146,14 +1139,7 @@
           <option value="transferencia">Transferencia</option>
         </select>
       </div>
-      <div class="field"><label>Periodicidad</label>
-        <select class="select" name="periodicidad" id="recPer">
-          <option value="mensual">Mensual</option>
-          <option value="semanal">Semanal</option>
-          <option value="diario">Diario</option>
-          <option value="anual">Anual</option>
-        </select>
-      </div>
+      <div class="field"><label>Cada (meses)</label><input class="input" type="number" min="1" max="12" name="periodo_meses" id="recPer" value="1" required></div>
     </div>
     <div class="field"><label>Cuenta</label><select class="select" name="cuenta_id" id="recCuenta" required></select></div>
     <div class="field" id="wrapRecCuentaDest" style="display: none;"><label>Cuenta destino</label><select class="select" name="cuenta_destino_id" id="recCuentaDest"></select></div>
@@ -1234,6 +1220,10 @@ function fmtFechaHora(v) {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit'
   });
+}
+function fmtPeriodoMeses(n) {
+  const v = Number(n || 1);
+  return v === 1 ? 'Mensual' : 'Cada ' + v + ' meses';
 }
 const MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const fmtMesCorto = (s) => { const [y, m] = String(s).split('-'); return MES_ABBR[Number(m) - 1] + " '" + y.slice(2); };
@@ -1897,7 +1887,7 @@ function renderDashboard() {
       <div class="acct-ico" style="background: var(--primary-container); color: var(--on-primary-container);">${ICONOS.event_repeat || ICONOS.subscriptions}</div>
       <div style="flex: 1;">
         <div class="title-sm">${escape(p.descripcion || 'Recurrente')}</div>
-        <div class="body-sm" style="color: var(--on-surface-variant);">Día ${p.dia_mes} · ${escape(p.periodicidad || '')}</div>
+        <div class="body-sm" style="color: var(--on-surface-variant);">Día ${p.dia_mes} · ${escape(fmtPeriodoMeses(p.periodo_meses))}</div>
       </div>
       <div class="data-tabular" style="font-weight: 700;">-${fmtMoneda(p.importe)}</div>
     </div>
@@ -2196,7 +2186,7 @@ function renderRecurrentes() {
       <div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}">${icoCat(cat)}</div>
       <div style="flex: 1;">
         <div class="title-sm">${escape(p.descripcion || '—')}</div>
-        <div class="body-sm" style="color: var(--on-surface-variant);">${detalleCuenta} · día ${p.dia_mes} · ${escape(p.periodicidad)}</div>
+        <div class="body-sm" style="color: var(--on-surface-variant);">${detalleCuenta} · día ${p.dia_mes} · ${escape(fmtPeriodoMeses(p.periodo_meses))}</div>
       </div>
       <div class="data-tabular" style="font-weight: 700; color: ${color};">${sign}${fmtMoneda(p.importe)}</div>
       <label class="switch"><input type="checkbox" ${r.activa ? 'checked' : ''} data-rec-toggle="${r.id}"><span class="track"><span class="knob"></span></span></label>
@@ -2397,7 +2387,7 @@ function openTx(id) {
     if (rec) {
       const p = JSON.parse(rec.plantilla);
       Estado.recPlantillaId = rec.id;
-      $('#txRecPeriodo').value = p.periodicidad || 'mensual';
+      $('#txRecPeriodoMeses').value = p.periodo_meses || 1;
       $('#txRecDia').value = p.dia_mes || Number((f.fecha || '').slice(8, 10)) || 1;
     }
   }
@@ -2634,7 +2624,7 @@ $('#formTx').addEventListener('submit', async (e) => {
   };
   if (recurrenteOn) {
     tx.recurrente_plantilla = true;
-    tx.recurrente_periodicidad = $('#txRecPeriodo').value;
+    tx.recurrente_periodo_meses = Number($('#txRecPeriodoMeses').value || 1);
     tx.recurrente_dia = Number($('#txRecDia').value || 1);
   } else {
     tx.recurrente_id = '';
@@ -3130,7 +3120,7 @@ function openRec(id) {
   $('#recDesc').value = p.descripcion || '';
   $('#recImporte').value = p.importe || '';
   $('#recDia').value = p.dia_mes || 1;
-  $('#recPer').value = p.periodicidad || 'mensual';
+  $('#recPer').value = p.periodo_meses || 1;
   poblarSelect('#recCuenta', Estado.bootstrap.cuentas, p.cuenta_id || '', c => c.nombre + ' (' + c.moneda + ')');
   syncFormRecurrente(p);
   recDraft.id = r ? r.id : '';
@@ -3173,7 +3163,7 @@ $('#formRec').addEventListener('submit', async (e) => {
     descripcion: f.get('descripcion'),
     importe: Number(f.get('importe')),
     tipo: tipo,
-    periodicidad: f.get('periodicidad'),
+    periodo_meses: Number(f.get('periodo_meses')),
     dia_mes: Number(f.get('dia_mes')),
     cuenta_id: f.get('cuenta_id'),
     cuenta_destino_id: cuentaDestinoId,

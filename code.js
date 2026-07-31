@@ -1660,9 +1660,18 @@ function validarPlantillaRecurrente_(owner, plantilla) {
   if (!['gasto', 'ingreso', 'transferencia'].includes(p.tipo)) throw new Error('Tipo inválido');
   if (!p.cuenta_id) throw new Error('Cuenta obligatoria');
   if (!(Number(p.importe) > 0)) throw new Error('Importe debe ser > 0');
-  if (!['mensual', 'semanal', 'diario', 'anual'].includes(String(p.periodicidad || 'mensual'))) {
-    throw new Error('Periodicidad inválida');
+  // ponytail: periodo en meses, entero 1-12. Compatibilidad con plantillas
+  // legacy: periodicidad === 'mensual' cae a 1 mes; semanal/diario/anual
+  // también (los valores imposibles de expresar en meses se aplanan a 1
+  // para no romper recurrencias activas, pero el usuario debe re-editarlas).
+  const periodoBruto = p.periodo_meses != null && p.periodo_meses !== ''
+    ? p.periodo_meses
+    : 1;
+  const periodo = Number(periodoBruto);
+  if (!Number.isInteger(periodo) || periodo < 1 || periodo > 12) {
+    throw new Error('El periodo debe ser un entero entre 1 y 12 meses');
   }
+  p.periodo_meses = periodo;
   if (p.tipo !== 'transferencia') return p;
 
   if (!p.cuenta_destino_id) throw new Error('Cuenta destino obligatoria en transferencia recurrente');
@@ -1734,7 +1743,7 @@ function upsertRecurrenteBase_(owner, tx) {
     ratio_conversion: tx.ratio_conversion ? Number(tx.ratio_conversion) : '',
     reparto_destino: Array.isArray(tx.reparto_destino) ? JSON.stringify(tx.reparto_destino) : (tx.reparto_destino || ''),
     categoria_id: tx.categoria_id || '', descripcion: tx.descripcion || '',
-    periodicidad: tx.recurrente_periodicidad || 'mensual', dia_mes: tx.recurrente_dia || Number(String(tx.fecha).slice(8, 10)),
+    periodo_meses: Number(tx.recurrente_periodo_meses || 1), dia_mes: tx.recurrente_dia || Number(String(tx.fecha).slice(8, 10)),
     inicio: iso_(tx.fecha), fin: tx.recurrente_fin || ''
   };
   const id = uid_('rec');
@@ -1762,6 +1771,10 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
       cursor.setDate(Number(p.dia_mes || 1));
       while (cursor <= fechaCorte) {
         const isoCursor = iso_(cursor);
+        // ponytail: idempotencia. (recurrente_id, fecha) es único por construcción
+        // porque el cursor avanza exactamente periodo_meses desde inicio+dia_mes;
+        // dos invocaciones no producen el mismo par, así que este check basta
+        // para que no se agregue más de una vez por periodo.
         const ya = txs.some(t => t.recurrente_id === r.id && String(t.fecha) === isoCursor);
         if (!ya) {
           txs.push({
@@ -1782,7 +1795,7 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
           });
           cambios = true;
         }
-        cursor = siguienteCursor_(cursor, p.periodicidad);
+        cursor = siguienteCursor_(cursor, p.periodo_meses);
       }
       r.ultima_generacion = iso_(fechaCorte);
     } catch (e) {
@@ -1798,12 +1811,9 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
   }));
 }
 
-function siguienteCursor_(d, periodicidad) {
+function siguienteCursor_(d, periodoMeses) {
   const f = new Date(d);
-  if (periodicidad === 'diario') f.setDate(f.getDate() + 1);
-  else if (periodicidad === 'semanal') f.setDate(f.getDate() + 7);
-  else if (periodicidad === 'anual') f.setFullYear(f.getFullYear() + 1);
-  else f.setMonth(f.getMonth() + 1);
+  f.setMonth(f.getMonth() + Number(periodoMeses || 1));
   return f;
 }
 
@@ -1910,7 +1920,7 @@ function obtenerResumen(anio, mes) {
   const proximos = recs.map(r => {
     try {
       const p = JSON.parse(r.plantilla);
-      return { id: r.id, descripcion: p.descripcion, importe: Number(p.importe), dia_mes: p.dia_mes, periodicidad: p.periodicidad };
+      return { id: r.id, descripcion: p.descripcion, importe: Number(p.importe), dia_mes: p.dia_mes, periodo_meses: p.periodo_meses || 1 };
     } catch (e) {
       return null;
     }
@@ -2166,6 +2176,32 @@ function __selfTestBody_(owner) {
   eliminarCuenta(splitSubA);
   eliminarCuenta(splitSubB);
   eliminarCuenta(destParent.id);
+
+  // Validación de periodo_meses en plantillas recurrentes (1-12 inclusive,
+  // entero; valores fuera de rango o no enteros se rechazan; legacy sin
+  // periodo_meses cae a 1).
+  const baseRec = { tipo: 'gasto', importe: 1, cuenta_id: cuentas[0].id, categoria_id: cat[0].id, dia_mes: 1, inicio: '2024-01-01' };
+  let recErr;
+  recErr = null;
+  try { validarPlantillaRecurrente_(owner, Object.assign({}, baseRec, { periodo_meses: 13 })); }
+  catch (e) { recErr = e.message; }
+  if (!recErr || !/entre 1 y 12/.test(recErr)) throw new Error('No rechazó periodo_meses=13: ' + recErr);
+  recErr = null;
+  try { validarPlantillaRecurrente_(owner, Object.assign({}, baseRec, { periodo_meses: 0 })); }
+  catch (e) { recErr = e.message; }
+  if (!recErr || !/entre 1 y 12/.test(recErr)) throw new Error('No rechazó periodo_meses=0: ' + recErr);
+  recErr = null;
+  try { validarPlantillaRecurrente_(owner, Object.assign({}, baseRec, { periodo_meses: 1.5 })); }
+  catch (e) { recErr = e.message; }
+  if (!recErr || !/entre 1 y 12/.test(recErr)) throw new Error('No rechazó periodo_meses=1.5: ' + recErr);
+  const legacyRec = Object.assign({}, baseRec);
+  delete legacyRec.periodo_meses;
+  legacyRec.periodicidad = 'semanal';
+  validarPlantillaRecurrente_(owner, legacyRec);
+  if (legacyRec.periodo_meses !== 1) throw new Error('Legacy periodicidad no cayó a 1 mes: ' + legacyRec.periodo_meses);
+  const okRec = Object.assign({}, baseRec, { periodo_meses: 6 });
+  validarPlantillaRecurrente_(owner, okRec);
+  if (okRec.periodo_meses !== 6) throw new Error('periodo_meses=6 fue mutado: ' + okRec.periodo_meses);
 
   return 'ok ' + cuentas.length + ' cuentas, ' + cat.length + ' categorías, diferencia=' + conciliado.diferencia;
 }
