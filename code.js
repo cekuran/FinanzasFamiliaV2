@@ -2203,8 +2203,12 @@ function __selfTestHojasBody_() {
   }
 }
 
-function ejecutarSelfTestAdmin() {
+function ejecutarSelfTestAdmin(spreadsheetId) {
   requireAdmin_();
+  const sid = String(spreadsheetId || '').trim();
+  const hojas = sid ? listarSpreadsheetsAdmin().filter(h => String(h.spreadsheet_id) === sid) : [];
+  if (sid && !hojas.length) throw new Error('Hoja no encontrada: ' + sid);
+  if (sid) _currentSheetId = sid;
   const resultados = {};
   const errores = [];
   const ejecutar = (nombre, prueba) => {
@@ -2219,7 +2223,7 @@ function ejecutarSelfTestAdmin() {
   };
   ejecutar('datos', __selfTest);
   ejecutar('hojas', __selfTestHojas);
-  return { ok: errores.length === 0, resultados, errores };
+  return { ok: errores.length === 0, hoja: sid || null, resultados, errores };
 }
 
 function limpiarLinksDe_(username) {

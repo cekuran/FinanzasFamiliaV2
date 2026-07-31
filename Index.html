@@ -876,7 +876,12 @@
         <div class="card col-12">
           <div class="card-h"><h2>Diagnóstico</h2></div>
           <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Ejecuta las pruebas internas de datos y de routing de hojas. Los datos de prueba se limpian al terminar.</div>
-          <button class="btn btn-secondary btn-sm" id="adminSelfTestBtn" type="button">Ejecutar self-test</button>
+          <div style="display: grid; grid-template-columns: 1fr auto; gap: var(--s-2); align-items: center;">
+            <select class="select" id="adminSelfTestHoja" aria-label="Hoja de datos sobre la que correr el self-test">
+              <option value="">Hoja activa del usuario</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" id="adminSelfTestBtn" type="button">Ejecutar self-test</button>
+          </div>
           <pre id="adminSelfTestOut" role="status" aria-live="polite" style="margin-top: var(--s-3); white-space: pre-wrap; word-break: break-word; min-height: 1.2em; color: var(--on-surface-variant);"></pre>
         </div>
       </div>
@@ -1645,6 +1650,7 @@ function renderAdmin() {
   cargarUsuariosAdminUI();
   cargarHojasAdminUI();
   poblarHojasNuevoUsuarioUI();
+  poblarHojasSelfTestUI();
 }
 
 async function poblarHojasNuevoUsuarioUI() {
@@ -1664,6 +1670,25 @@ async function poblarHojasNuevoUsuarioUI() {
     }
   } catch (e) {
     sel.innerHTML = '<option value="">Sin hoja inicial</option>';
+    sel.disabled = true;
+    sel.title = 'No se pudo cargar el directorio de hojas';
+  }
+}
+
+async function poblarHojasSelfTestUI() {
+  const sel = $('#adminSelfTestHoja');
+  if (!sel) return;
+  const activaId = (Estado.bootstrap && Estado.bootstrap.hojaActivaId) || '';
+  try {
+    const sheets = await call('listarSpreadsheetsAdmin');
+    const opts = ['<option value="">Hoja activa del usuario</option>']
+      .concat((sheets || []).map(s => `<option value="${escape(s.spreadsheet_id)}">${escape(s.nombre)}</option>`));
+    sel.innerHTML = opts.join('');
+    sel.disabled = !(sheets && sheets.length);
+    sel.value = '';
+    sel.dataset.activaId = activaId;
+  } catch (e) {
+    sel.innerHTML = '<option value="">Hoja activa del usuario</option>';
     sel.disabled = true;
     sel.title = 'No se pudo cargar el directorio de hojas';
   }
@@ -3134,13 +3159,18 @@ $('#adminSheetForm').addEventListener('submit', async (e) => {
 $('#adminSelfTestBtn').addEventListener('click', async () => {
   const btn = $('#adminSelfTestBtn');
   const out = $('#adminSelfTestOut');
+  const sel = $('#adminSelfTestHoja');
   const label = btn.textContent;
+  const sid = (sel && sel.value) || '';
   btn.disabled = true;
   btn.textContent = 'Ejecutando...';
   out.textContent = 'Ejecutando pruebas...';
   try {
-    const r = await call('ejecutarSelfTestAdmin');
-    const lines = [r.ok ? 'OK: todas las pruebas pasaron' : 'FALLO: revisar errores'];
+    const r = await call('ejecutarSelfTestAdmin', sid);
+    const objetivo = r.hoja
+      ? ' sobre ' + (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : r.hoja)
+      : ' sobre la hoja activa del usuario';
+    const lines = [(r.ok ? 'OK' : 'FALLO') + objetivo];
     Object.entries(r.resultados || {}).forEach(([nombre, resultado]) => {
       lines.push(nombre + ': ' + (resultado.ok ? 'OK' : 'FALLO') + ' (' + resultado.ms + ' ms)' + (resultado.mensaje ? ' - ' + resultado.mensaje : ''));
     });
