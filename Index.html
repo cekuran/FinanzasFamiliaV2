@@ -1457,6 +1457,7 @@ async function cargarHojasAdminUI() {
           <div class="hoja-row-actions">
             <a class="btn btn-sm btn-outline" href="https://docs.google.com/spreadsheets/d/${escape(s.spreadsheet_id)}/edit" target="_blank" rel="noopener noreferrer">Abrir</a>
             <button class="btn btn-sm btn-outline" type="button" data-sheet-action="rename">Renombrar</button>
+            <button class="btn btn-sm btn-danger" type="button" data-sheet-action="reset">Resetear datos</button>
             <button class="btn btn-sm btn-danger" type="button" data-sheet-action="delete">Eliminar hoja</button>
           </div>
         </div>
@@ -3209,6 +3210,32 @@ if (adminSheetsList) {
         btn.disabled = false;
         btn.textContent = label;
       }
+      return;
+    }
+    if (action === 'reset') {
+      const nameEl = row.querySelector('.hoja-row-name');
+      const sheetName = nameEl ? nameEl.textContent.trim() : sheetId;
+      await openConfirm({
+        title: 'Resetear datos',
+        message: '¿Resetear "' + sheetName + '"? Se borrarán todos los datos de todos sus usuarios vinculados y se crearán de nuevo las cuentas, subcuentas y categorías iniciales. Esta acción no se puede deshacer.',
+        danger: true,
+        confirmLabel: 'Resetear',
+        onConfirm: async () => {
+          const label = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = 'Reseteando...';
+          try {
+            const resultado = await call('resetearSpreadsheetAdmin', sheetId);
+            const total = (resultado.usuarios || []).length;
+            toast('Hoja reseteada para ' + total + (total === 1 ? ' usuario' : ' usuarios'));
+            await recargar();
+          } catch (err) {
+            toast('Error: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = label;
+          }
+        }
+      });
       return;
     }
     if (action === 'delete') {

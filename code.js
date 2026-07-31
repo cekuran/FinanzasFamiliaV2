@@ -625,6 +625,29 @@ function bajaSpreadsheetAdmin(spreadsheetId) {
   return { ok: true };
 }
 
+function resetearSpreadsheetAdmin(spreadsheetId) {
+  requireAdmin_();
+  const id = String(spreadsheetId || '').trim();
+  if (!id) throw new Error('Indica el spreadsheet ID');
+  if (!leerSpreadsheets_().some(s => String(s.spreadsheet_id) === id)) {
+    throw new Error('Spreadsheet no registrado');
+  }
+  const usuarios = [...new Set(leerHojasUsuarios_()
+    .filter(l => String(l.spreadsheet_id) === id)
+    .map(l => String(l.username || '').trim())
+    .filter(Boolean))];
+
+  _currentSheetId = id;
+  migrarEsquema();
+  HOJAS.forEach(nombre => escribirHoja(nombre, []));
+  usuarios.forEach(owner => {
+    sembrar(owner);
+    normalizarCuentasSinSubcuentas_(owner);
+  });
+
+  return { ok: true, spreadsheet_id: id, usuarios: usuarios };
+}
+
 function renombrarSpreadsheetAdmin(spreadsheetId, nombre) {
   requireAdmin_();
   const id = String(spreadsheetId || '').trim();
