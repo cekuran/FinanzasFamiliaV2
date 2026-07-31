@@ -455,6 +455,17 @@
   .hoja-row-info { flex: 1; min-width: 0; }
   .hoja-row-name { font-weight: 600; font-size: 15px; }
   .hoja-row-id { font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace; font-size: 11px; color: var(--on-surface-variant); word-break: break-all; }
+  .reset-section { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-3); border-radius: var(--r-md); background: var(--surface-container-lowest); border: 1px solid var(--surface-container); }
+  .reset-list { display: flex; flex-direction: column; gap: var(--s-2); }
+  .reset-cta, .reset-cat { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-2); border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--surface-container); }
+  .reset-cta-head, .reset-cat-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .reset-cta-head .input { flex: 1 1 140px; min-width: 140px; }
+  .reset-cta-head .select { width: auto; }
+  .reset-cta-head .reset-remove { margin-left: auto; }
+  .reset-subs { display: flex; flex-direction: column; gap: 6px; padding-left: var(--s-3); border-left: 2px solid var(--surface-container); }
+  .reset-sub-row { display: flex; gap: 6px; align-items: center; }
+  .reset-sub-row .input { flex: 1 1 120px; min-width: 120px; }
+  .reset-cat-head .input { flex: 1 1 140px; min-width: 140px; }
   .hoja-row-desc { font-size: 13px; color: var(--on-surface-variant); margin-top: 2px; }
   .hoja-row-users { font-size: 13px; margin-top: 4px; }
   .hoja-row-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
@@ -1120,6 +1131,34 @@
     <button type="button" class="btn btn-secondary" id="sheetConfirmCancel" style="flex: 1;">Cancelar</button>
     <button type="button" class="btn btn-primary" id="sheetConfirmOk" style="flex: 2;">Confirmar</button>
   </div>
+</div>
+
+<!-- Sheet: configurar reset de hoja -->
+<div class="sheet bottom" id="sheetResetConfig" role="dialog" aria-modal="true" aria-labelledby="sheetResetConfigTitle">
+  <div class="sheet-handle"></div>
+  <h3 id="sheetResetConfigTitle">Configurar reset de hoja</h3>
+  <p class="body-sm" style="color: var(--on-surface-variant); margin: 0 0 var(--s-4);" id="sheetResetConfigMsg"></p>
+  <form id="formResetConfig" style="display: flex; flex-direction: column; gap: var(--s-4);">
+    <div class="reset-section">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s-2);">
+        <strong>Cuentas y subcuentas</strong>
+        <button type="button" class="btn btn-sm btn-outline" id="resetAddCta">+ Añadir cuenta</button>
+      </div>
+      <div id="resetCtasList" class="reset-list"></div>
+      <p class="body-sm" style="color: var(--on-surface-variant); margin: var(--s-2) 0 0;">Si una cuenta no tiene subcuentas, se creará una "General" automáticamente.</p>
+    </div>
+    <div class="reset-section">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s-2);">
+        <strong>Categorías</strong>
+        <button type="button" class="btn btn-sm btn-outline" id="resetAddCat">+ Añadir categoría</button>
+      </div>
+      <div id="resetCatsList" class="reset-list"></div>
+    </div>
+    <div style="position: sticky; bottom: 0; margin: var(--s-3) calc(-1 * var(--s-4)) calc(-1 * var(--s-5) - env(safe-area-inset-bottom, 0)); padding: var(--s-3) var(--s-4); background: var(--surface); display: flex; gap: var(--s-2); border-top: 1px solid var(--surface-container);">
+      <button type="button" class="btn btn-secondary" id="resetCancel" style="flex: 1;">Cancelar</button>
+      <button type="submit" class="btn btn-danger" id="resetSubmit" style="flex: 2;">Resetear</button>
+    </div>
+  </form>
 </div>
 
 <div class="toast" id="toast"><svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><span id="toastMsg">Listo</span></div>
@@ -2727,6 +2766,198 @@ $('#formCat').addEventListener('submit', async (e) => {
   } catch (err) { toast('Error: ' + err.message); }
 });
 
+// === Reset config sheet ===
+// ponytail: draft efímero con la configuración a sembrar tras el reset. Cada
+// fila tiene un id local (cid/catId) para localizar handlers de borrado.
+const resetConfig = {
+  sheetId: '',
+  sheetName: '',
+  cuentas: [],
+  categorias: []
+};
+let _resetCidSeq = 0;
+function nextResetCid_() { return 'c' + (++_resetCidSeq); }
+
+function openResetConfig(sheetId, sheetName) {
+  resetConfig.sheetId = sheetId;
+  resetConfig.sheetName = sheetName || sheetId;
+  resetConfig.cuentas = [];
+  resetConfig.categorias = [];
+  _resetCidSeq = 0;
+  $('#sheetResetConfigMsg').textContent =
+    'Vas a resetear "' + resetConfig.sheetName + '". Se borrarán los datos de todos los usuarios vinculados. Define las cuentas, subcuentas y categorías con las que se reiniciará la hoja. Si una cuenta se queda sin subcuentas, se le creará una "General" automáticamente.';
+  renderResetConfig();
+  openSheet('sheetResetConfig');
+}
+
+function renderResetConfig() {
+  renderResetCuentas();
+  renderResetCategorias();
+}
+
+function renderResetCuentas() {
+  const wrap = $('#resetCtasList');
+  if (!resetConfig.cuentas.length) {
+    wrap.innerHTML = '<div class="body-sm" style="color: var(--on-surface-variant); padding: var(--s-2) 0;">Aún no hay cuentas. Añade al menos una.</div>';
+    return;
+  }
+  wrap.innerHTML = resetConfig.cuentas.map(cta => {
+    const subsHtml = (cta.subcuentas || []).map(sub => `
+      <div class="reset-sub-row" data-cid="${escape(cta.cid)}" data-sid="${escape(sub.sid)}">
+        <input class="input" type="text" placeholder="Nombre subcuenta" value="${escape(sub.nombre)}" data-reset-field="sub-nombre">
+        <input class="input" type="number" step="0.01" placeholder="Saldo inicial" value="${sub.saldo_inicial || 0}" data-reset-field="sub-saldo" style="max-width: 120px;">
+        <button type="button" class="btn btn-sm btn-outline" data-reset-action="del-sub" aria-label="Quitar subcuenta">−</button>
+      </div>`).join('');
+    const emptyHint = subsHtml ? '' :
+      '<div class="body-sm" style="color: var(--on-surface-variant);">Sin subcuentas → se creará "General".</div>';
+    return `<div class="reset-cta" data-cid="${escape(cta.cid)}">
+      <div class="reset-cta-head">
+        <input class="input" type="text" placeholder="Nombre cuenta (ej. BBVA)" value="${escape(cta.nombre)}" data-reset-field="cta-nombre">
+        <select class="select" data-reset-field="cta-tipo" aria-label="Tipo">
+          <option value="activo"${cta.tipo === 'activo' ? ' selected' : ''}>Activo</option>
+          <option value="pasivo"${cta.tipo === 'pasivo' ? ' selected' : ''}>Pasivo</option>
+        </select>
+        <select class="select" data-reset-field="cta-moneda" aria-label="Moneda">
+          ${['EUR','USD','COP','MXN','GBP','ARS','CLP','PEN'].map(m => `<option${cta.moneda === m ? ' selected' : ''}>${m}</option>`).join('')}
+        </select>
+        <button type="button" class="btn btn-sm btn-outline reset-remove" data-reset-action="del-cta" aria-label="Quitar cuenta">×</button>
+      </div>
+      <div class="reset-subs">${subsHtml}${emptyHint}</div>
+      <button type="button" class="btn btn-sm btn-outline" data-reset-action="add-sub" style="align-self: flex-start;">+ Subcuenta</button>
+    </div>`;
+  }).join('');
+}
+
+function renderResetCategorias() {
+  const wrap = $('#resetCatsList');
+  if (!resetConfig.categorias.length) {
+    wrap.innerHTML = '<div class="body-sm" style="color: var(--on-surface-variant); padding: var(--s-2) 0;">Sin categorías (opcional).</div>';
+    return;
+  }
+  wrap.innerHTML = resetConfig.categorias.map(cat => `
+    <div class="reset-cat" data-catid="${escape(cat.id)}">
+      <div class="reset-cat-head">
+        <input class="input" type="text" placeholder="Nombre categoría" value="${escape(cat.nombre)}" data-reset-field="cat-nombre">
+        <select class="select" data-reset-field="cat-tipo" aria-label="Tipo">
+          <option value="gasto"${cat.tipo === 'gasto' ? ' selected' : ''}>Gasto</option>
+          <option value="ingreso"${cat.tipo === 'ingreso' ? ' selected' : ''}>Ingreso</option>
+        </select>
+        <input class="input" type="color" value="${escape(cat.color)}" data-reset-field="cat-color" aria-label="Color" style="max-width: 56px; height: 40px; padding: 2px;">
+        <button type="button" class="btn btn-sm btn-outline reset-remove" data-reset-action="del-cat" aria-label="Quitar categoría">×</button>
+      </div>
+    </div>`).join('');
+}
+
+$('#resetAddCta').addEventListener('click', () => {
+  resetConfig.cuentas.push({ cid: nextResetCid_(), nombre: '', tipo: 'activo', moneda: 'EUR', subcuentas: [] });
+  renderResetCuentas();
+});
+$('#resetAddCat').addEventListener('click', () => {
+  resetConfig.categorias.push({ id: 'rc' + (++_resetCidSeq), nombre: '', tipo: 'gasto', color: '#00613e' });
+  renderResetCategorias();
+});
+$('#resetCtasList').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-reset-action]');
+  if (!btn) return;
+  const ctaRow = btn.closest('.reset-cta');
+  if (!ctaRow) return;
+  const cid = ctaRow.dataset.cid;
+  const cta = resetConfig.cuentas.find(c => c.cid === cid);
+  if (!cta) return;
+  if (btn.dataset.resetAction === 'del-cta') {
+    resetConfig.cuentas = resetConfig.cuentas.filter(c => c.cid !== cid);
+    renderResetCuentas();
+  } else if (btn.dataset.resetAction === 'add-sub') {
+    cta.subcuentas.push({ sid: 's' + (++_resetCidSeq), nombre: '', saldo_inicial: 0 });
+    renderResetCuentas();
+  } else if (btn.dataset.resetAction === 'del-sub') {
+    const subRow = btn.closest('.reset-sub-row');
+    const sid = subRow && subRow.dataset.sid;
+    cta.subcuentas = cta.subcuentas.filter(s => s.sid !== sid);
+    renderResetCuentas();
+  }
+});
+$('#resetCtasList').addEventListener('input', (e) => {
+  const field = e.target.dataset.resetField;
+  if (!field) return;
+  const ctaRow = e.target.closest('.reset-cta');
+  const cid = ctaRow && ctaRow.dataset.cid;
+  const cta = resetConfig.cuentas.find(c => c.cid === cid);
+  if (!cta) return;
+  if (field === 'cta-nombre') cta.nombre = e.target.value;
+  else if (field === 'cta-tipo') cta.tipo = e.target.value;
+  else if (field === 'cta-moneda') cta.moneda = e.target.value;
+  else if (field === 'sub-nombre') {
+    const subRow = e.target.closest('.reset-sub-row');
+    const sid = subRow && subRow.dataset.sid;
+    const sub = cta.subcuentas.find(s => s.sid === sid);
+    if (sub) sub.nombre = e.target.value;
+  } else if (field === 'sub-saldo') {
+    const subRow = e.target.closest('.reset-sub-row');
+    const sid = subRow && subRow.dataset.sid;
+    const sub = cta.subcuentas.find(s => s.sid === sid);
+    if (sub) sub.saldo_inicial = Number(e.target.value || 0);
+  }
+});
+$('#resetCatsList').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-reset-action]');
+  if (!btn) return;
+  if (btn.dataset.resetAction !== 'del-cat') return;
+  const catRow = btn.closest('.reset-cat');
+  const id = catRow && catRow.dataset.catid;
+  resetConfig.categorias = resetConfig.categorias.filter(c => c.id !== id);
+  renderResetCategorias();
+});
+$('#resetCatsList').addEventListener('input', (e) => {
+  const field = e.target.dataset.resetField;
+  if (!field) return;
+  const catRow = e.target.closest('.reset-cat');
+  const id = catRow && catRow.dataset.catid;
+  const cat = resetConfig.categorias.find(c => c.id === id);
+  if (!cat) return;
+  if (field === 'cat-nombre') cat.nombre = e.target.value;
+  else if (field === 'cat-tipo') cat.tipo = e.target.value;
+  else if (field === 'cat-color') cat.color = e.target.value;
+});
+$('#resetCancel').addEventListener('click', closeAllSheets);
+$('#formResetConfig').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const cuentasValidas = resetConfig.cuentas
+    .map(c => ({
+      nombre: String(c.nombre || '').trim(),
+      tipo: c.tipo === 'pasivo' ? 'pasivo' : 'activo',
+      moneda: String(c.moneda || 'EUR').toUpperCase(),
+      subcuentas: (c.subcuentas || [])
+        .map(s => ({ nombre: String(s.nombre || '').trim(), saldo_inicial: Number(s.saldo_inicial || 0) }))
+        .filter(s => s.nombre)
+    }))
+    .filter(c => c.nombre);
+  const categoriasValidas = resetConfig.categorias
+    .map(c => ({ nombre: String(c.nombre || '').trim(), tipo: c.tipo, color: c.color }))
+    .filter(c => c.nombre);
+  if (!cuentasValidas.length) {
+    toast('Añade al menos una cuenta con nombre');
+    return;
+  }
+  const btn = $('#resetSubmit');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Reseteando...';
+  try {
+    const seed = { cuentas: cuentasValidas, categorias: categoriasValidas };
+    const resultado = await call('resetearSpreadsheetAdmin', resetConfig.sheetId, seed);
+    const total = (resultado.usuarios || []).length;
+    closeAllSheets();
+    toast('Hoja reseteada para ' + total + (total === 1 ? ' usuario' : ' usuarios'));
+    await recargar();
+  } catch (err) {
+    toast('Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+});
+
 // === Rec sheet ===
 // ponytail: draft local para conservar el id, la plantilla cruda y
 // ultima_generacion entre openRec y el submit. Permite editar sin perder
@@ -3215,27 +3446,7 @@ if (adminSheetsList) {
     if (action === 'reset') {
       const nameEl = row.querySelector('.hoja-row-name');
       const sheetName = nameEl ? nameEl.textContent.trim() : sheetId;
-      await openConfirm({
-        title: 'Resetear datos',
-        message: '¿Resetear "' + sheetName + '"? Se borrarán todos los datos de todos sus usuarios vinculados y se crearán de nuevo las cuentas, subcuentas y categorías iniciales. Esta acción no se puede deshacer.',
-        danger: true,
-        confirmLabel: 'Resetear',
-        onConfirm: async () => {
-          const label = btn.textContent;
-          btn.disabled = true;
-          btn.textContent = 'Reseteando...';
-          try {
-            const resultado = await call('resetearSpreadsheetAdmin', sheetId);
-            const total = (resultado.usuarios || []).length;
-            toast('Hoja reseteada para ' + total + (total === 1 ? ' usuario' : ' usuarios'));
-            await recargar();
-          } catch (err) {
-            toast('Error: ' + err.message);
-            btn.disabled = false;
-            btn.textContent = label;
-          }
-        }
-      });
+      openResetConfig(sheetId, sheetName);
       return;
     }
     if (action === 'delete') {

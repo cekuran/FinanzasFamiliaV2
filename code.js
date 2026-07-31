@@ -625,13 +625,14 @@ function bajaSpreadsheetAdmin(spreadsheetId) {
   return { ok: true };
 }
 
-function resetearSpreadsheetAdmin(spreadsheetId) {
+function resetearSpreadsheetAdmin(spreadsheetId, seed) {
   requireAdmin_();
   const id = String(spreadsheetId || '').trim();
   if (!id) throw new Error('Indica el spreadsheet ID');
   if (!leerSpreadsheets_().some(s => String(s.spreadsheet_id) === id)) {
     throw new Error('Spreadsheet no registrado');
   }
+  const seedNormalizado = normalizarSeed_(seed);
   const usuarios = [...new Set(leerHojasUsuarios_()
     .filter(l => String(l.spreadsheet_id) === id)
     .map(l => String(l.username || '').trim())
@@ -641,11 +642,48 @@ function resetearSpreadsheetAdmin(spreadsheetId) {
   migrarEsquema();
   HOJAS.forEach(nombre => escribirHoja(nombre, []));
   usuarios.forEach(owner => {
-    sembrar(owner);
+    sembrar(owner, seedNormalizado);
     normalizarCuentasSinSubcuentas_(owner);
   });
 
   return { ok: true, spreadsheet_id: id, usuarios: usuarios };
+}
+
+// ponytail: el seed personalizado se valida y sanea aquí. Si viene vacío o
+// inválido, cae al SEMILLA global. Devuelve { cuentas, categorias } listo para
+// pasar a sembrar().
+function normalizarSeed_(seed) {
+  if (!seed || typeof seed !== 'object') return null;
+  const cuentas = Array.isArray(seed.cuentas) ? seed.cuentas : [];
+  const categorias = Array.isArray(seed.categorias) ? seed.categorias : [];
+  const cuentasOk = cuentas
+    .map(c => ({
+      nombre: String(c.nombre || '').trim(),
+      tipo: c.tipo === 'pasivo' ? 'pasivo' : 'activo',
+      moneda: String(c.moneda || 'EUR').toUpperCase(),
+      icono: String(c.icono || 'account_balance_wallet'),
+      saldo_inicial: Number(c.saldo_inicial || 0),
+      orden: Number(c.orden || 0) || 99,
+      subcuentas: Array.isArray(c.subcuentas) ? c.subcuentas
+        .map(s => ({
+          nombre: String(s.nombre || '').trim(),
+          saldo_inicial: Number(s.saldo_inicial || 0),
+          orden: Number(s.orden || 0) || 99
+        }))
+        .filter(s => s.nombre) : []
+    }))
+    .filter(c => c.nombre);
+  const categoriasOk = categorias
+    .map(cat => ({
+      nombre: String(cat.nombre || '').trim(),
+      color: String(cat.color || '#00613e'),
+      icono: String(cat.icono || 'category'),
+      tipo: cat.tipo === 'ingreso' ? 'ingreso' : 'gasto',
+      orden: Number(cat.orden || 0) || 99
+    }))
+    .filter(cat => cat.nombre);
+  if (!cuentasOk.length && !categoriasOk.length) return null;
+  return { cuentas: cuentasOk, categorias: categoriasOk };
 }
 
 function renombrarSpreadsheetAdmin(spreadsheetId, nombre) {
@@ -963,12 +1001,16 @@ function eliminarFila(nombre, owner, id) {
   escribirHoja(nombre, datos);
 }
 
-function sembrar(owner) {
+function sembrar(owner, seed) {
   HOJAS.forEach(asegurarHoja);
   // Si ya tiene algo, no duplicar
   if (leerHoja('Cuentas').some(c => c.owner === owner)) return;
 
-  const cuentas = SEMILLA.Cuentas.flatMap(c => {
+  const fuente = seed || SEMILLA;
+  const fuenteCuentas = seed ? seed.cuentas : SEMILLA.Cuentas;
+  const fuenteCategorias = seed ? seed.categorias : SEMILLA.Categorias;
+
+  const cuentas = fuenteCuentas.flatMap(c => {
     const parent = Object.assign({
       owner: owner, id: uid_('cta'), parent_id: '', oculta: false, fecha_creacion: isoAhora_()
     }, c);
@@ -980,7 +1022,7 @@ function sembrar(owner) {
   });
   escribirHoja('Cuentas', leerHoja('Cuentas').concat(cuentas));
 
-  const cats = SEMILLA.Categorias.map(c => Object.assign({
+  const cats = fuenteCategorias.map(c => Object.assign({
     owner: owner, id: uid_('cat')
   }, c));
   escribirHoja('Categorias', leerHoja('Categorias').concat(cats));
