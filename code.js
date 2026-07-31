@@ -1765,17 +1765,23 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
   recs.forEach(r => {
     try {
       const p = JSON.parse(r.plantilla);
-      const ultima = r.ultima_generacion ? new Date(r.ultima_generacion) : null;
-      const inicio = new Date(p.inicio);
-      let cursor = ultima && ultima > inicio ? new Date(ultima) : new Date(inicio);
-      cursor.setDate(Number(p.dia_mes || 1));
+      const periodo = Number(p.periodo_meses) || 1;
+      const dia = Number(p.dia_mes) || 1;
+      const inicio = parseFecha(p.inicio) || new Date();
+      let cursor;
+      if (r.ultima_generacion) {
+        const u = parseFecha(r.ultima_generacion);
+        cursor = u && !isNaN(u) ? new Date(u) : new Date(inicio);
+      } else {
+        cursor = new Date(inicio);
+      }
+      cursor.setDate(dia);
       while (cursor <= fechaCorte) {
         const isoCursor = iso_(cursor);
-        // ponytail: idempotencia. (recurrente_id, fecha) es único por construcción
-        // porque el cursor avanza exactamente periodo_meses desde inicio+dia_mes;
-        // dos invocaciones no producen el mismo par, así que este check basta
-        // para que no se agregue más de una vez por periodo.
-        const ya = txs.some(t => t.recurrente_id === r.id && String(t.fecha) === isoCursor);
+        // ponytail: idempotencia robusta. Match por (recurrente_id, mes) o
+        // por (mes, cuenta, importe, descripcion) para no duplicar el
+        // "original" manual previo sin recurrente_id.
+        const ya = txConflictaEnMesRecurrente_(txs, r, p, isoCursor);
         if (!ya) {
           txs.push({
             owner: owner, id: uid_('tx'),
@@ -1795,7 +1801,7 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
           });
           cambios = true;
         }
-        cursor = siguienteCursor_(cursor, p.periodo_meses);
+        cursor = siguienteCursor_(cursor, periodo);
       }
       r.ultima_generacion = iso_(fechaCorte);
     } catch (e) {
@@ -1809,6 +1815,24 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
     const nuevo = recs.find(x => x.id === r.id);
     return nuevo || r;
   }));
+}
+
+// ponytail: dedup al generar recurrentes. Idempotente por (recurrente_id, mes)
+// y por (mes, cuenta, importe, descripcion) para atrapar el "original" manual
+// que existía antes de crear el recurrente y no tiene recurrente_id asignado.
+function txConflictaEnMesRecurrente_(txs, r, p, isoCursor) {
+  const ym = isoCursor.slice(0, 7);
+  const desc = String(p.descripcion || '').trim();
+  const imp = Number(p.importe);
+  const cta = p.cuenta_id || '';
+  return txs.some(t => {
+    if (typeof t.fecha !== 'string' || t.fecha.slice(0, 7) !== ym) return false;
+    if (t.recurrente_id === r.id) return true;
+    return t.recurrente_id === '' &&
+      t.cuenta_id === cta &&
+      Number(t.importe) === imp &&
+      String(t.descripcion || '').trim() === desc;
+  });
 }
 
 function siguienteCursor_(d, periodoMeses) {
@@ -2202,6 +2226,33 @@ function __selfTestBody_(owner) {
   const okRec = Object.assign({}, baseRec, { periodo_meses: 6 });
   validarPlantillaRecurrente_(owner, okRec);
   if (okRec.periodo_meses !== 6) throw new Error('periodo_meses=6 fue mutado: ' + okRec.periodo_meses);
+
+  // Dedup de recurrentes: detectar el "original" manual sin recurrente_id y
+  // no duplicarlo al generar.
+  const fakeRec = { id: 'rec_dedup', owner };
+  const plantAlquiler = { tipo: 'gasto', importe: 100, cuenta_id: cuentas[0].id,
+                          descripcion: 'Alquiler', inicio: '2026-08-15', dia_mes: 15, periodo_meses: 1 };
+  const txsDedup = [
+    { id: 'tx_a', fecha: '2026-08-15', importe: 100, cuenta_id: cuentas[0].id,
+      descripcion: 'Alquiler', recurrente_id: '' },
+    { id: 'tx_b', fecha: '2026-07-15', importe: 100, cuenta_id: cuentas[0].id,
+      descripcion: 'Alquiler', recurrente_id: '' },
+    { id: 'tx_c', fecha: '2026-09-15', importe: 50, cuenta_id: cuentas[0].id,
+      descripcion: 'Otro gasto', recurrente_id: '' }
+  ];
+  if (txConflictaEnMesRecurrente_(txsDedup, fakeRec, plantAlquiler, '2026-08-15') !== true)
+    throw new Error('No detectó original manual mismo mes');
+  if (txConflictaEnMesRecurrente_(txsDedup, fakeRec, plantAlquiler, '2026-10-15') !== false)
+    throw new Error('Falso positivo en mes vacío');
+  if (txConflictaEnMesRecurrente_(
+      [{ id: 'x', fecha: '2026-08-20', importe: 999, cuenta_id: cuentas[0].id, descripcion: 'Otra cosa', recurrente_id: '' }],
+      fakeRec, plantAlquiler, '2026-08-20') !== false)
+    throw new Error('Match por mes pero cuenta/importe/desc distinto no debería chocar');
+  if (txConflictaEnMesRecurrente_(
+      [{ id: 'y', fecha: '2026-08-15', importe: 100, cuenta_id: cuentas[0].id,
+         descripcion: 'Alquiler', recurrente_id: 'rec_OTRO' }],
+      fakeRec, plantAlquiler, '2026-08-15') !== false)
+    throw new Error('No debe colisionar con otro recurrente del mismo mes');
 
   return 'ok ' + cuentas.length + ' cuentas, ' + cat.length + ' categorías, diferencia=' + conciliado.diferencia;
 }
