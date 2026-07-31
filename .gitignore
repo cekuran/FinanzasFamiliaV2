@@ -4,3 +4,6 @@ stitch_gestor_financiero_integral/**
 appsscript.json
 .mcp.json
 .clasp.json
+
+# Local Netlify folder
+.netlify
