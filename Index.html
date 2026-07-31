@@ -871,20 +871,6 @@
           <div id="adminSheetsList" class="body-sm" style="color: var(--on-surface-variant);"></div>
         </div>
       </div>
-
-      <div class="bento" style="margin-top: var(--s-4);">
-        <div class="card col-12">
-          <div class="card-h"><h2>Diagnóstico</h2></div>
-          <div class="body-sm" style="color: var(--on-surface-variant); margin-bottom: var(--s-3);">Ejecuta las pruebas internas de datos y de routing de hojas. Los datos de prueba se limpian al terminar.</div>
-          <div style="display: grid; grid-template-columns: 1fr auto; gap: var(--s-2); align-items: center;">
-            <select class="select" id="adminSelfTestHoja" aria-label="Hoja de datos sobre la que correr el self-test">
-              <option value="">Hoja activa del usuario</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" id="adminSelfTestBtn" type="button">Ejecutar self-test</button>
-          </div>
-          <pre id="adminSelfTestOut" role="status" aria-live="polite" style="margin-top: var(--s-3); white-space: pre-wrap; word-break: break-word; min-height: 1.2em; color: var(--on-surface-variant);"></pre>
-        </div>
-      </div>
     </section>
 
     <!-- Configuración -->
@@ -1477,6 +1463,10 @@ async function cargarHojasAdminUI() {
           <button class="btn btn-sm btn-primary" type="button" data-sheet-action="rename-save">Guardar</button>
           <button class="btn btn-sm btn-secondary" type="button" data-sheet-action="rename-cancel">Cancelar</button>
         </div>
+        <div class="hoja-row-actions" style="flex-direction: row; flex-wrap: wrap;">
+          <button class="btn btn-sm btn-outline" type="button" data-sheet-action="selftest">Ejecutar self-test</button>
+          <pre class="hoja-row-selftest" data-sheet-selftest role="status" aria-live="polite" style="flex: 1 1 100%; margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; min-height: 0;"></pre>
+        </div>
       </div>`;
     }).join('');
   } catch (e) {
@@ -1650,7 +1640,6 @@ function renderAdmin() {
   cargarUsuariosAdminUI();
   cargarHojasAdminUI();
   poblarHojasNuevoUsuarioUI();
-  poblarHojasSelfTestUI();
 }
 
 async function poblarHojasNuevoUsuarioUI() {
@@ -1670,25 +1659,6 @@ async function poblarHojasNuevoUsuarioUI() {
     }
   } catch (e) {
     sel.innerHTML = '<option value="">Sin hoja inicial</option>';
-    sel.disabled = true;
-    sel.title = 'No se pudo cargar el directorio de hojas';
-  }
-}
-
-async function poblarHojasSelfTestUI() {
-  const sel = $('#adminSelfTestHoja');
-  if (!sel) return;
-  const activaId = (Estado.bootstrap && Estado.bootstrap.hojaActivaId) || '';
-  try {
-    const sheets = await call('listarSpreadsheetsAdmin');
-    const opts = ['<option value="">Hoja activa del usuario</option>']
-      .concat((sheets || []).map(s => `<option value="${escape(s.spreadsheet_id)}">${escape(s.nombre)}</option>`));
-    sel.innerHTML = opts.join('');
-    sel.disabled = !(sheets && sheets.length);
-    sel.value = '';
-    sel.dataset.activaId = activaId;
-  } catch (e) {
-    sel.innerHTML = '<option value="">Hoja activa del usuario</option>';
     sel.disabled = true;
     sel.title = 'No se pudo cargar el directorio de hojas';
   }
@@ -3156,38 +3126,6 @@ $('#adminSheetForm').addEventListener('submit', async (e) => {
   }
 });
 
-$('#adminSelfTestBtn').addEventListener('click', async () => {
-  const btn = $('#adminSelfTestBtn');
-  const out = $('#adminSelfTestOut');
-  const sel = $('#adminSelfTestHoja');
-  const label = btn.textContent;
-  const sid = (sel && sel.value) || '';
-  btn.disabled = true;
-  btn.textContent = 'Ejecutando...';
-  out.textContent = 'Ejecutando pruebas...';
-  try {
-    const r = await call('ejecutarSelfTestAdmin', sid);
-    const objetivo = r.hoja
-      ? ' sobre ' + (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : r.hoja)
-      : ' sobre la hoja activa del usuario';
-    const lines = [(r.ok ? 'OK' : 'FALLO') + objetivo];
-    Object.entries(r.resultados || {}).forEach(([nombre, resultado]) => {
-      lines.push(nombre + ': ' + (resultado.ok ? 'OK' : 'FALLO') + ' (' + resultado.ms + ' ms)' + (resultado.mensaje ? ' - ' + resultado.mensaje : ''));
-    });
-    (r.errores || []).forEach(error => lines.push('Error en ' + error.prueba + ': ' + error.mensaje));
-    out.textContent = lines.join('\n');
-    out.style.color = r.ok ? 'var(--primary)' : 'var(--error)';
-    toast(r.ok ? 'Self-test correcto' : 'Self-test con errores');
-  } catch (err) {
-    const mensaje = err && err.message ? err.message : String(err);
-    out.textContent = 'Error: ' + mensaje;
-    out.style.color = 'var(--error)';
-    toast('Error: ' + mensaje);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = label;
-  }
-});
 const adminSheetsList = $('#adminSheetsList');
 if (adminSheetsList) {
   adminSheetsList.addEventListener('click', async (e) => {
@@ -3251,6 +3189,35 @@ if (adminSheetsList) {
           }
         }
       });
+      return;
+    }
+    if (action === 'selftest') {
+      const out = row.querySelector('[data-sheet-selftest]');
+      const label = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Ejecutando...';
+      out.textContent = 'Ejecutando pruebas...';
+      out.style.color = 'var(--on-surface-variant)';
+      try {
+        const r = await call('ejecutarSelfTestAdmin', sheetId);
+        const lines = [(r.ok ? 'OK' : 'FALLO') + ' sobre ' + sheetId];
+        Object.entries(r.resultados || {}).forEach(([nombre, resultado]) => {
+          lines.push(nombre + ': ' + (resultado.ok ? 'OK' : 'FALLO') + ' (' + resultado.ms + ' ms)' + (resultado.mensaje ? ' - ' + resultado.mensaje : ''));
+        });
+        (r.errores || []).forEach(error => lines.push('Error en ' + error.prueba + ': ' + error.mensaje));
+        out.textContent = lines.join('\n');
+        out.style.color = r.ok ? 'var(--primary)' : 'var(--error)';
+        toast(r.ok ? 'Self-test correcto' : 'Self-test con errores');
+      } catch (err) {
+        const mensaje = err && err.message ? err.message : String(err);
+        out.textContent = 'Error: ' + mensaje;
+        out.style.color = 'var(--error)';
+        toast('Error: ' + mensaje);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+      return;
     }
   });
 }
