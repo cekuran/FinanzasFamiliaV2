@@ -2080,8 +2080,7 @@ function renderMovimientos() {
       destinoHtml = '<div class="body-sm" style="color: var(--on-surface-variant);">→ ' + escape(ctaD ? ctaD.nombre : '—') + '</div>'
         + reparto.map(r => {
           const sd = ctaD ? (ctaD.subcuentas || []).find(s => s.id === r.subcuenta_id) : null;
-          const rc = r.categoria_id ? Estado.bootstrap.categorias.find(c => c.id === r.categoria_id) : null;
-          return `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sd ? sd.nombre : '—')} · ${fmtMoneda(r.importe, ctaD ? ctaD.moneda : 'EUR')}${rc ? ' · ' + escape(rc.nombre) : ''}</div>`;
+          return `<div class="body-sm" style="color: var(--on-surface-variant);">↳ ${escape(sd ? sd.nombre : '—')} · ${fmtMoneda(r.importe, ctaD ? ctaD.moneda : 'EUR')}</div>`;
         }).join('');
     } else if (isTransfer) {
       destinoHtml = `<div class="body-sm" style="color: var(--on-surface-variant);">→ ${escape(ctaD ? ctaD.nombre : '—')}${subD ? ' · ' + escape(subD.nombre) : ''}</div>`;
@@ -2092,12 +2091,19 @@ function renderMovimientos() {
       ? `${escape(cta ? cta.nombre : '—')}${sub ? ' · ' + escape(sub.nombre) : ''}${destinoHtml}`
       : `${escape(cta ? cta.nombre : '—')}${destinoHtml}`;
     const pill = t.estado === 'conciliado' ? 'pill-primary' : t.estado === 'vencido' ? 'pill-error' : t.estado === 'pagado' ? 'pill-secondary' : 'pill-outline';
+    // Una pill por categoría: en transferencias con reparto, una por sub-cuenta destino.
+    const catEntries = isTransfer && reparto.length
+      ? reparto.map(r => r.categoria_id ? Estado.bootstrap.categorias.find(c => c.id === r.categoria_id) : null)
+      : [cat || null];
+    const catsHtml = catEntries.map(c => c
+      ? `<span class="pill" style="background: ${c.color}33; color: ${c.color};">${escape(c.nombre)}</span>`
+      : '').join('') || '—';
     return `<tr>
       <td class="icon-cell"><div class="tx-ico" style="${tintCat(cat ? cat.color : '#00613e')}; width: 36px; height: 36px;">${icoCat(cat)}</div></td>
       <td>${escape(t.fecha)}</td>
       <td><div style="font-weight: 600;">${escape(t.descripcion || '—')}</div>${t.notas ? `<div class="body-sm" style="color: var(--on-surface-variant);">${escape(t.notas)}</div>` : ''}<div class="body-sm" style="color: var(--on-surface-variant);">Alta: ${escape(t.owner || '—')} · Última edición: ${escape(t.ultima_edicion_por || t.owner || '—')} · ${escape(fmtFechaHora(t.fecha_ultima_edicion))}</div></td>
       <td>${cuentaHtml}</td>
-      <td>${escape(cat ? cat.nombre : '—')}</td>
+      <td>${catsHtml}</td>
       <td><span class="pill ${pill}">${escape(t.estado)}</span></td>
       <td class="num" style="color: ${color};">${sign}${fmtMoneda(t.importe, t.moneda || (cta ? cta.moneda : 'EUR'))}</td>
       <td class="actions">
