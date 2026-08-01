@@ -1186,6 +1186,7 @@
       <div class="field"><label>Cada (meses)</label><input class="input" type="number" min="1" max="12" name="periodo_meses" id="recPer" value="1" required></div>
     </div>
     <div class="field"><label>Cuenta</label><select class="select" name="cuenta_id" id="recCuenta" required></select></div>
+    <div class="field" id="wrapRecSubcuenta" style="display: none;"><label>Subcuenta</label><select class="select" name="subcuenta_id" id="recSubcuenta"><option value="">— Ninguna —</option></select></div>
     <div class="field" id="wrapRecCuentaDest" style="display: none;"><label>Cuenta destino</label><select class="select" name="cuenta_destino_id" id="recCuentaDest"></select></div>
     <div class="field" id="wrapRecSubcuentaDest" style="display: none;"><label>Subcuenta destino</label><select class="select" name="subcuenta_destino_id" id="recSubcuentaDest"><option value="">— Ninguna —</option></select></div>
     <div id="wrapRecReparto" style="display: none;">
@@ -3474,6 +3475,22 @@ function actualizarDestinoRecurrente(preferred) {
   const wrapEstablecimiento = $('#wrapRecEstablecimiento');
   const catLabel = $('#recCat').closest('.field').querySelector('label');
   const cuentaOrigenId = $('#recCuenta').value || '';
+  // ponytail: subcuenta origen visible en gasto/ingreso cuando la cuenta tiene.
+  const ctaO = Estado.bootstrap.cuentas.find(c => c.id === cuentaOrigenId);
+  const subsO = (ctaO && ctaO.subcuentas) || [];
+  const wrapRecSubcuenta = $('#wrapRecSubcuenta');
+  const recSubcuentaSel = $('#recSubcuenta');
+  const visSubOrigen = tipo !== 'transferencia' && subsO.length > 0;
+  if (wrapRecSubcuenta) wrapRecSubcuenta.style.display = visSubOrigen ? '' : 'none';
+  if (recSubcuentaSel && visSubOrigen) {
+    const preferido = preferred && preferred.subcuenta_id;
+    const current = preferido || recSubcuentaSel.value || subsO[0].id;
+    recSubcuentaSel.innerHTML = '<option value="">— Ninguna —</option>' + subsO.map(s =>
+      `<option value="${s.id}" ${s.id === current ? 'selected' : ''}>${escape(s.nombre)}</option>`
+    ).join('');
+  } else if (recSubcuentaSel) {
+    recSubcuentaSel.value = '';
+  }
   // ponytail: permitimos misma cuenta para transferir entre subcuentas del
   // mismo padre; la UI excluye la subcuenta origen del dropdown de destino.
   const cuentasDestino = Estado.bootstrap.cuentas;
@@ -3624,6 +3641,7 @@ $('#formRec').addEventListener('submit', async (e) => {
     periodo_meses: Number(f.get('periodo_meses')),
     dia_mes: Number(f.get('dia_mes')),
     cuenta_id: f.get('cuenta_id'),
+    subcuenta_id: esTransfer ? '' : (f.get('subcuenta_id') || ''),
     cuenta_destino_id: cuentaDestinoId,
     subcuenta_destino_id: usarReparto ? '' : subcuentaDestinoId,
     importe_destino: esTransfer && importeDestino > 0 ? importeDestino : '',

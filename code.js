@@ -1838,7 +1838,16 @@ function validarPlantillaRecurrente_(owner, plantilla) {
   } else {
     p.establecimiento_id = '';
   }
-  if (p.tipo !== 'transferencia') return p;
+  if (p.tipo !== 'transferencia') {
+    // ponytail: si trae subcuenta de origen, debe pertenecer a la cuenta.
+    // Sin esto, el saldo se imputa a una subcuenta ajena hasta el siguiente
+    // bootstrap (cuando normalizarSubcuentasHuerfanas_ la limpia).
+    if (p.subcuenta_id) {
+      const subO = leerHoja('Cuentas').find(c => c.id === p.subcuenta_id && c.parent_id === p.cuenta_id);
+      if (!subO) throw new Error('Subcuenta no encontrada o no pertenece a la cuenta');
+    }
+    return p;
+  }
 
   if (!p.cuenta_destino_id) throw new Error('Cuenta destino obligatoria en transferencia recurrente');
   // ponytail: misma cuenta se permite para mover entre subcuentas del mismo
@@ -2548,6 +2557,21 @@ function __selfTestBody_(owner) {
   const okRec = Object.assign({}, baseRec, { periodo_meses: 6 });
   validarPlantillaRecurrente_(owner, okRec);
   if (okRec.periodo_meses !== 6) throw new Error('periodo_meses=6 fue mutado: ' + okRec.periodo_meses);
+
+  // Validación de subcuenta_id en plantilla: si está, debe pertenecer a la
+  // cuenta. Sin esta guarda, las txs generadas imputarían saldo a una
+  // subcuenta ajena hasta el siguiente bootstrap.
+  const recConSubOk = Object.assign({}, baseRec, { subcuenta_id: subId });
+  validarPlantillaRecurrente_(owner, recConSubOk);
+  let recSubErr;
+  recSubErr = null;
+  try { validarPlantillaRecurrente_(owner, Object.assign({}, baseRec, { subcuenta_id: destSubId })); }
+  catch (e) { recSubErr = e.message; }
+  if (!recSubErr || !/no pertenece a la cuenta/.test(recSubErr)) throw new Error('No rechazó subcuenta ajena: ' + recSubErr);
+  recSubErr = null;
+  try { validarPlantillaRecurrente_(owner, Object.assign({}, baseRec, { subcuenta_id: 'cta_inexistente' })); }
+  catch (e) { recSubErr = e.message; }
+  if (!recSubErr || !/Subcuenta no encontrada/.test(recSubErr)) throw new Error('No rechazó subcuenta inexistente: ' + recSubErr);
 
   // Dedup de recurrentes: detectar el "original" manual sin recurrente_id y
   // no duplicarlo al generar.
