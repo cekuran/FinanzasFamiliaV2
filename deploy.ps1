@@ -58,7 +58,8 @@ if (-not $Redeploy) {
 
     $latest = $current | Select-Object -First 1
     if ($latest) {
-        Write-Host ">> currently deployed: $($latest.description) (id=$($latest.deploymentId))"
+        Write-Host ">> current description: $($latest.description)"
+        Write-Host ">> current id:          $($latest.deploymentId)"
     } else {
         Write-Host '>> no deployments yet'
     }

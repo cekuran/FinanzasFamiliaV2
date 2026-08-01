@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "deploy",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File deploy.ps1 ${input:redeploy}",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "redeploy",
+      "type": "pickString",
+      "description": "Redeploy?",
+      "options": [
+        "",
+        "-Redeploy"
+      ],
+      "default": ""
+    }
+  ]
+}
