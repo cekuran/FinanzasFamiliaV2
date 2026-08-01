@@ -1172,11 +1172,10 @@ function obtenerCuentas() {
       };
     }).sort((a, b) => a.orden - b.orden);
 
-    // Modelo de partición: las subcuentas reparten el saldo del padre, no lo
-    // aumentan. Su saldo_inicial ya forma parte del saldo_inicial del padre, así
-    // que al total del padre solo se le suma la variación por movimientos de
-    // subcuenta (subDelta), nunca su saldo inicial (evita doble conteo).
-    const subDeltaTotal = subcuentas.reduce((s, x) => s + (x.saldo - x.saldo_inicial), 0);
+    // Modelo aditivo: el saldo del padre es su propio saldo más el saldo
+    // completo de cada subcuenta (saldo_inicial + delta de transacciones).
+    const subTotal = subcuentas.reduce((s, x) => s + x.saldo, 0);
+    const subInitialTotal = subcuentas.reduce((s, x) => s + x.saldo_inicial, 0);
     const parentDelta = parentTxs.reduce((s, t) => s + deltaCuenta_(t, c.id), 0);
 
     const hoy = new Date();
@@ -1201,13 +1200,13 @@ function obtenerCuentas() {
           .reduce((sd, t) => sd + deltaSubcuenta_(t, sub.id), 0);
         return s + dK;
       }, 0);
-      evolucion.push({ mes: k, saldo: parentInitial + parentDeltaK + subDeltaK });
+      evolucion.push({ mes: k, saldo: parentInitial + parentDeltaK + subInitialTotal + subDeltaK });
     }
 
     return {
       id: c.id, nombre: c.nombre, tipo: c.tipo, moneda: c.moneda, icono: c.icono,
       saldo_inicial: parentInitial,
-      saldo: parentInitial + parentDelta + subDeltaTotal,
+      saldo: parentInitial + parentDelta + subTotal,
       evolucion,
       subcuentas
     };
