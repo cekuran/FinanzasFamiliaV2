@@ -3717,8 +3717,6 @@ function refrescarCuentas() {
 // === Boot ===
 async function recargar() {
   const token = ++_txSyncToken;
-  const route = getActiveRoute();
-  setRouteLoading(route);
   const boot = await call('bootstrap');
   if (token !== _txSyncToken) return;
   if (!boot) { toast('No se pudo recargar'); return; }
