@@ -56,7 +56,7 @@ if (-not $Redeploy) {
     if ($null -eq $current) { $current = @() }
     if ($current -isnot [System.Array]) { $current = @($current) }
 
-    $latest = $current | Select-Object -First 1
+    $latest = $current | Sort-Object -Property versionNumber -Descending | Select-Object -First 1
     if ($latest) {
         Write-Host ">> current description: $($latest.description)"
         Write-Host ">> current id:          $($latest.deploymentId)"
