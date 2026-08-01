@@ -1731,7 +1731,16 @@ function guardarTransaccion(tx) {
     fecha_ultima_edicion: isoAhora_()
   };
   if (fila.tipo === 'transferencia' && !fila.cuenta_destino_id) throw new Error('Cuenta destino obligatoria en transferencia');
-  if (fila.tipo === 'transferencia' && fila.cuenta_destino_id === fila.cuenta_id) throw new Error('La cuenta destino no puede ser la misma que la cuenta origen');
+  // ponytail: misma cuenta se permite para mover entre subcuentas del mismo
+  // padre. Si no hay subcuenta origen o el destino coincide, sería un no-op.
+  if (fila.tipo === 'transferencia' && fila.cuenta_destino_id === fila.cuenta_id) {
+    if (!subcuenta_id) throw new Error('Transferencia interna requiere subcuenta de origen');
+    const destIds = repartoDestinoNormalizado.length
+      ? repartoDestinoNormalizado.map(r => r.subcuenta_id)
+      : (subcuenta_destino_id ? [subcuenta_destino_id] : []);
+    if (!destIds.length) throw new Error('Transferencia interna requiere subcuenta de destino');
+    if (destIds.includes(subcuenta_id)) throw new Error('La subcuenta destino no puede ser la misma que la de origen');
+  }
   if (fila.tipo === 'transferencia' && fila.ratio_conversion && !(fila.importe_destino > 0)) {
     throw new Error('Falta importe destino o ratio de conversión');
   }
@@ -1832,8 +1841,14 @@ function validarPlantillaRecurrente_(owner, plantilla) {
   if (p.tipo !== 'transferencia') return p;
 
   if (!p.cuenta_destino_id) throw new Error('Cuenta destino obligatoria en transferencia recurrente');
+  // ponytail: misma cuenta se permite para mover entre subcuentas del mismo
+  // padre. La validación fina (subcuentas distintas) la hace guardarTransaccion
+  // al materializar la plantilla; aquí solo dejamos pasar la intención.
   if (String(p.cuenta_destino_id) === String(p.cuenta_id)) {
-    throw new Error('La cuenta destino no puede ser la misma que la cuenta origen');
+    if (!p.subcuenta_id) throw new Error('Transferencia interna recurrente requiere subcuenta de origen');
+    if (!p.subcuenta_destino_id && !(p.reparto_destino && parseRepartoDestino_(p.reparto_destino).length)) {
+      throw new Error('Transferencia interna recurrente requiere subcuenta de destino');
+    }
   }
 
   const cuentas = leerHoja('Cuentas');
@@ -2372,6 +2387,38 @@ function __selfTestBody_(owner) {
   const targetAfter = obtenerCuentas().find(c => c.id === destParent.id).subcuentas.find(s => s.id === destSubId);
   if (targetAfter.saldo !== 20) throw new Error('Transferencia no acreditó subcuenta destino: ' + targetAfter.saldo);
 
+  // Transferencia interna entre subcuentas del mismo padre: no debe contar en
+  // presupuesto y debe mover saldo entre subcuentas sin tocar el total del padre.
+  const parentPre = obtenerCuentas().find(c => c.id === parent.id);
+  const subPre = parentPre.subcuentas.find(s => s.id === subId);
+  const otherPre = parentPre.subcuentas.find(s => s.id === anotherId);
+  const ingresoPresIntAntes = obtenerResumen().ingresosPresupuesto;
+  const gastoPresIntAntes = obtenerResumen().gastosPresupuesto;
+  const txInternal = guardarTransaccion({
+    tipo: 'transferencia', importe: 8,
+    cuenta_id: parent.id, subcuenta_id: subId,
+    cuenta_destino_id: parent.id, subcuenta_destino_id: anotherId,
+    descripcion: 'self-internal-transfer', fecha: isoHoy_()
+  });
+  const parentPost = obtenerCuentas().find(c => c.id === parent.id);
+  const subPost = parentPost.subcuentas.find(s => s.id === subId);
+  const otherPost = parentPost.subcuentas.find(s => s.id === anotherId);
+  if (subPost.saldo !== subPre.saldo - 8) throw new Error('Interna no debitó sub origen: ' + subPost.saldo + ' vs ' + (subPre.saldo - 8));
+  if (otherPost.saldo !== otherPre.saldo + 8) throw new Error('Interna no acreditó sub destino: ' + otherPost.saldo + ' vs ' + (otherPre.saldo + 8));
+  if (Math.abs(parentPost.saldo - parentPre.saldo) > 0.01) throw new Error('Interna alteró saldo del padre: ' + parentPost.saldo + ' vs ' + parentPre.saldo);
+  if (obtenerResumen().ingresosPresupuesto !== ingresoPresIntAntes) throw new Error('Interna alteró ingresos presupuesto');
+  if (obtenerResumen().gastosPresupuesto !== gastoPresIntAntes) throw new Error('Interna alteró gastos presupuesto');
+  // Misma cuenta sin subcuenta origen o destino debe rechazarse.
+  let intErr;
+  intErr = null;
+  try { guardarTransaccion({ tipo: 'transferencia', importe: 1, cuenta_id: parent.id, cuenta_destino_id: parent.id, descripcion: 'self-internal-no-sub', fecha: isoHoy_() }); }
+  catch (e) { intErr = e.message; }
+  if (!intErr || !/subcuenta de origen/.test(intErr)) throw new Error('No rechazó interna sin sub origen: ' + intErr);
+  intErr = null;
+  try { guardarTransaccion({ tipo: 'transferencia', importe: 1, cuenta_id: parent.id, subcuenta_id: subId, cuenta_destino_id: parent.id, descripcion: 'self-internal-self', fecha: isoHoy_() }); }
+  catch (e) { intErr = e.message; }
+  if (!intErr || !/misma que la de origen/.test(intErr)) throw new Error('No rechazó interna origen==destino: ' + intErr);
+
   // Transferencia pasivo -> activo: debe computar como ingreso de presupuesto.
   const catIngreso = obtenerCategorias().find(c => c.tipo === 'ingreso');
   if (!catIngreso) throw new Error('No hay categoría de ingreso para self-test');
@@ -2468,6 +2515,7 @@ function __selfTestBody_(owner) {
   eliminarTransaccion(txTransfer.id);
   eliminarTransaccion(txTransferIngreso.id);
   eliminarTransaccion(txSplit.id);
+  eliminarTransaccion(txInternal.id);
   eliminarCuenta(subId);
   eliminarCuenta(anotherId);
   eliminarCuenta(destSubId);

@@ -2576,9 +2576,9 @@ function actualizarSubcuentasTx(preferred) {
     selO.value = '';
   }
 
-  // Cuenta destino: excluir la cuenta origen para evitar transferencias a sí misma.
+  // Cuenta destino: permitir la misma cuenta para transferencias entre subcuentas.
   const sourceId = cta ? cta.id : '';
-  const destCtas = Estado.bootstrap.cuentas.filter(c => c.id !== sourceId);
+  const destCtas = Estado.bootstrap.cuentas;
   const prevDest = preferred ? preferred.cuenta_destino_id : $('#txCuentaDest').value;
   const destVal = destCtas.some(c => c.id === prevDest) ? prevDest : '';
   $('#txCuentaDest').innerHTML = '<option value="">—</option>' + destCtas.map(c =>
@@ -2589,28 +2589,32 @@ function actualizarSubcuentasTx(preferred) {
   // se muestra la lista dinámica para repartir el importe entre varias.
   const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#txCuentaDest').value);
   const subsD = (ctaD && ctaD.subcuentas) || [];
+  // ponytail: misma cuenta → la subcuenta de origen no puede ser destino.
+  const subOrigenId = $('#txSubcuenta').value;
+  const sameParent = !!sourceId && sourceId === (ctaD && ctaD.id);
+  const subsDOpts = (sameParent && subOrigenId) ? subsD.filter(s => s.id !== subOrigenId) : subsD;
   const visDest = isTransfer && !!$('#txCuentaDest').value;
   $('#wrapRepartoDest').style.display = visDest ? '' : 'none';
   if (!visDest) {
     Estado.txRepartoDest = [];
-    renderRepartoRows(subsD, []);
+    renderRepartoRows(subsDOpts, []);
     syncCategoriasTransferenciaTx_(preferred ? preferred.categoria_id : undefined);
     actualizarTotalReparto();
     return;
   }
   // Si la cuenta destino cambió y los ids seleccionados ya no existen, se limpia.
-  const validIds = new Set(subsD.map(s => s.id));
+  const validIds = new Set(subsDOpts.map(s => s.id));
   const preferido = parseRepartoFromTx_(preferred);
   if (preferido && preferido.length) {
     Estado.txRepartoDest = preferido.filter(r => validIds.has(r.subcuenta_id));
   } else if (Estado.txRepartoDest.length && Estado._lastCtaDestinoId !== $('#txCuentaDest').value) {
     Estado.txRepartoDest = Estado.txRepartoDest.filter(r => validIds.has(r.subcuenta_id));
-  } else if (!Estado.txRepartoDest.length && subsD.length) {
+  } else if (!Estado.txRepartoDest.length && subsDOpts.length) {
     // ponytail: al elegir destino con subcuentas, primera como fila inicial
-    Estado.txRepartoDest.push({ subcuenta_id: subsD[0].id, importe: 0, categoria_id: '', periodo_uso: 0, monto_a_usar: 0 });
+    Estado.txRepartoDest.push({ subcuenta_id: subsDOpts[0].id, importe: 0, categoria_id: '', periodo_uso: 0, monto_a_usar: 0 });
   }
   Estado._lastCtaDestinoId = $('#txCuentaDest').value;
-  renderRepartoRows(subsD, Estado.txRepartoDest);
+  renderRepartoRows(subsDOpts, Estado.txRepartoDest);
   syncCategoriasTransferenciaTx_(preferred ? preferred.categoria_id : undefined);
   actualizarTotalReparto();
 }
@@ -2820,6 +2824,13 @@ function actualizarTotalReparto() {
 }
 $('#txCuenta').addEventListener('change', () => actualizarSubcuentasTx());
 $('#txCuentaDest').addEventListener('change', () => actualizarSubcuentasTx());
+$('#txSubcuenta').addEventListener('change', () => {
+  // ponytail: si origen y destino son la misma cuenta, la subcuenta origen
+  // ya no debe aparecer como destino del reparto.
+  if (Estado.txTipo !== 'transferencia') return;
+  if ($('#txCuenta').value !== $('#txCuentaDest').value) return;
+  actualizarSubcuentasTx();
+});
 $('#btnAddRepartoDest').addEventListener('click', addRepartoRow);
 $('#txImporte').addEventListener('input', () => { syncDestino(); actualizarTotalReparto(); });
 $('#txImporteDest').addEventListener('input', actualizarTotalReparto);
@@ -3463,7 +3474,9 @@ function actualizarDestinoRecurrente(preferred) {
   const wrapEstablecimiento = $('#wrapRecEstablecimiento');
   const catLabel = $('#recCat').closest('.field').querySelector('label');
   const cuentaOrigenId = $('#recCuenta').value || '';
-  const cuentasDestino = Estado.bootstrap.cuentas.filter(c => c.id !== cuentaOrigenId);
+  // ponytail: permitimos misma cuenta para transferir entre subcuentas del
+  // mismo padre; la UI excluye la subcuenta origen del dropdown de destino.
+  const cuentasDestino = Estado.bootstrap.cuentas;
   const cuentaDestinoActual = preferred && preferred.keepCurrent
     ? $('#recCuentaDest').value
     : ((preferred && preferred.cuenta_destino_id) || $('#recCuentaDest').value || '');
@@ -3486,12 +3499,18 @@ function actualizarDestinoRecurrente(preferred) {
 
   const ctaD = Estado.bootstrap.cuentas.find(c => c.id === cuentaDestinoValida);
   const subsD = (ctaD && ctaD.subcuentas) || [];
+  // ponytail: misma cuenta → la subcuenta de origen no puede ser destino.
+  const subOrigenIdRec = $('#recSubcuenta').value;
+  const sameParentRec = !!cuentaOrigenId && cuentaOrigenId === cuentaDestinoValida;
+  const subsDOptsRec = (sameParentRec && subOrigenIdRec)
+    ? subsD.filter(s => s.id !== subOrigenIdRec)
+    : subsD;
   const subDestActual = preferred && preferred.keepCurrent
     ? $('#recSubcuentaDest').value
     : ((preferred && preferred.subcuenta_destino_id) || '');
-  wrapSubcuentaDest.style.display = tipo === 'transferencia' && subsD.length ? '' : 'none';
+  wrapSubcuentaDest.style.display = tipo === 'transferencia' && subsDOptsRec.length ? '' : 'none';
   if (subsD.length) {
-    $('#recSubcuentaDest').innerHTML = '<option value="">— Ninguna —</option>' + subsD.map(s =>
+    $('#recSubcuentaDest').innerHTML = '<option value="">— Ninguna —</option>' + subsDOptsRec.map(s =>
       `<option value="${s.id}" ${s.id === subDestActual ? 'selected' : ''}>${escape(s.nombre)}</option>`
     ).join('');
   } else {
@@ -3503,7 +3522,7 @@ function actualizarDestinoRecurrente(preferred) {
   if (wrapReparto) wrapReparto.style.display = visReparto ? '' : 'none';
   if (!visReparto) {
     Estado.repRecDest = [];
-    renderRepartoRowsRec(subsD, []);
+    renderRepartoRowsRec(subsDOptsRec, []);
     actualizarTotalRepartoRec();
     // ponytail: subcuenta_destino dropdown también oculto cuando no aplica.
     if (wrapSubcuentaDest) wrapSubcuentaDest.style.display = 'none';
@@ -3515,15 +3534,15 @@ function actualizarDestinoRecurrente(preferred) {
   // pulsar "+ Añadir destino" para repartir.
   if (!(preferred && preferred.keepCurrent) && hasRepartoDestino_(preferred)) {
     const preferido = parseRepartoFromTx_(preferred);
-    const validIds = new Set(subsD.map(s => s.id));
+    const validIds = new Set(subsDOptsRec.map(s => s.id));
     Estado.repRecDest = preferido ? preferido.filter(r => validIds.has(r.subcuenta_id)) : [];
   } else if (!(preferred && preferred.keepCurrent)) {
     Estado.repRecDest = [];
   }
   // Si la cuenta destino cambió y los ids seleccionados ya no existen, filtrar.
-  const validIds = new Set(subsD.map(s => s.id));
+  const validIds = new Set(subsDOptsRec.map(s => s.id));
   Estado.repRecDest = Estado.repRecDest.filter(r => validIds.has(r.subcuenta_id));
-  renderRepartoRowsRec(subsD, Estado.repRecDest);
+  renderRepartoRowsRec(subsDOptsRec, Estado.repRecDest);
   actualizarTotalRepartoRec();
   // ponytail: dropdown y reparto son excluyentes — si hay reparto, ocultar
   // el dropdown para que no salga "— Ninguna —" como opción destacada.
@@ -3570,6 +3589,13 @@ $('#recCuenta').addEventListener('change', () => {
 $('#recCuentaDest').addEventListener('change', () => {
   actualizarDestinoRecurrente({ keepCurrent: true });
   poblarCategoriasRecurrente($('#recTipo').value, $('#recCat').value, $('#recCuenta').value, $('#recCuentaDest').value);
+});
+$('#recSubcuenta').addEventListener('change', () => {
+  // ponytail: si origen y destino son la misma cuenta, la subcuenta origen
+  // ya no debe aparecer como destino del reparto ni del dropdown.
+  if ($('#recTipo').value !== 'transferencia') return;
+  if ($('#recCuenta').value !== $('#recCuentaDest').value) return;
+  actualizarDestinoRecurrente({ keepCurrent: true });
 });
 $('#recPer').addEventListener('input', () => {
   if ($('#recTipo').value !== 'transferencia') return;
