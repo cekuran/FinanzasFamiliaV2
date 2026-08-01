@@ -48,6 +48,21 @@ $repoRoot  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $indexPath = Join-Path $repoRoot 'netlify\index.html'
 
 if (-not $Redeploy) {
+    Write-Host '>> clasp list-deployments --json (current latest)'
+    $currentJson = & clasp list-deployments --json
+    if ($LASTEXITCODE -ne 0) { throw "clasp list-deployments failed ($LASTEXITCODE)" }
+
+    $current = $currentJson | ConvertFrom-Json
+    if ($null -eq $current) { $current = @() }
+    if ($current -isnot [System.Array]) { $current = @($current) }
+
+    $latest = $current | Select-Object -First 1
+    if ($latest) {
+        Write-Host ">> currently deployed: $($latest.description) (id=$($latest.deploymentId))"
+    } else {
+        Write-Host '>> no deployments yet'
+    }
+
     $version = Read-Host 'Version tag for the deployment'
     if ([string]::IsNullOrWhiteSpace($version)) { throw 'Version is required.' }
 
