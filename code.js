@@ -1,6 +1,6 @@
 /** @OnlyCurrentDoc */
 // Finanzas Familia — backend Google Apps Script (Sheets + WebApp).
-// Multi-usuario: cada fila lleva owner; CRUD siempre filtra por usuario activo.
+// Multi-usuario: cada fila conserva owner como metadato; el CRUD usa el id global.
 
 const SCHEMA = {
   Cuentas:       ['owner','id','parent_id','nombre','tipo','moneda','icono','saldo_inicial','orden','oculta','fecha_creacion'],
@@ -644,8 +644,8 @@ function resetearSpreadsheetAdmin(spreadsheetId, seed) {
   HOJAS.forEach(nombre => escribirHoja(nombre, []));
   usuarios.forEach(owner => {
     sembrar(owner, seedNormalizado);
-    normalizarCuentasSinSubcuentas_(owner);
   });
+  normalizarCuentasSinSubcuentas_();
 
   return { ok: true, spreadsheet_id: id, usuarios: usuarios };
 }
@@ -1009,19 +1009,19 @@ function escribirHoja(nombre, filas) {
 
 function upsertFila(nombre, fila) {
   const datos = leerHoja(nombre);
-  const idx = nombre === 'Transacciones'
-    ? datos.findIndex(f => f.id === fila.id)
-    : datos.findIndex(f => f.id === fila.id && f.owner === fila.owner);
-  if (idx >= 0) datos[idx] = Object.assign({}, datos[idx], fila);
-  else datos.push(fila);
+  const idx = datos.findIndex(f => f.id === fila.id);
+  if (idx >= 0) {
+    fila = Object.assign({}, datos[idx], fila, { owner: datos[idx].owner });
+    datos[idx] = fila;
+  } else {
+    datos.push(fila);
+  }
   escribirHoja(nombre, datos);
   return fila;
 }
 
-function eliminarFila(nombre, owner, id) {
-  const datos = nombre === 'Transacciones'
-    ? leerHoja(nombre).filter(f => f.id !== id)
-    : leerHoja(nombre).filter(f => !(f.owner === owner && f.id === id));
+function eliminarFila(nombre, id) {
+  const datos = leerHoja(nombre).filter(f => f.id !== id);
   escribirHoja(nombre, datos);
 }
 
@@ -1079,9 +1079,9 @@ function bootstrapBase() {
     sembrar(owner);
     owners = [owner];
   }
+  normalizarCuentasSinSubcuentas_();
+  normalizarSubcuentasHuerfanas_();
   owners.forEach(ownerFila => {
-    normalizarCuentasSinSubcuentas_(ownerFila);
-    normalizarSubcuentasHuerfanas_(ownerFila);
     generarRecurrentesPendientes_(ownerFila, new Date());
   });
   return {
@@ -1254,8 +1254,8 @@ function deltaSubcuenta_(t, subId) {
 // subcuenta que no pertenece a su propia cuenta (datos heredados o corruptos),
 // se borra la subcuenta_id para que el movimiento quede solo en su cuenta.
 // Idempotente: solo escribe cuando encuentra algo que corregir.
-function normalizarSubcuentasHuerfanas_(owner) {
-  const cuentas = leerHoja('Cuentas').filter(c => c.owner === owner);
+function normalizarSubcuentasHuerfanas_() {
+  const cuentas = leerHoja('Cuentas');
   const validas = new Set(
     cuentas.filter(c => c.parent_id).map(c => c.parent_id + '|' + c.id)
   );
@@ -1291,10 +1291,10 @@ function normalizarSubcuentasHuerfanas_(owner) {
   return cambios;
 }
 
-function crearSubcuentaDefault_(owner, parent) {
+function crearSubcuentaDefault_(parent) {
   if (!parent || parent.parent_id) return null;
   const fila = {
-    owner: owner,
+    owner: parent.owner,
     id: uid_('cta'),
     parent_id: parent.id,
     nombre: 'General',
@@ -1310,18 +1310,18 @@ function crearSubcuentaDefault_(owner, parent) {
   return fila;
 }
 
-function asegurarSubcuentaDefaultCuenta_(owner, parentId) {
-  const todas = leerHoja('Cuentas').filter(c => c.owner === owner);
+function asegurarSubcuentaDefaultCuenta_(parentId) {
+  const todas = leerHoja('Cuentas');
   const parent = todas.find(c => c.id === parentId && !c.parent_id);
   if (!parent) return false;
   const subs = todas.filter(c => c.parent_id === parentId);
   if (subs.length > 0) return false;
-  crearSubcuentaDefault_(owner, parent);
+  crearSubcuentaDefault_(parent);
   return true;
 }
 
-function normalizarCuentasSinSubcuentas_(owner) {
-  const todas = leerHoja('Cuentas').filter(c => c.owner === owner);
+function normalizarCuentasSinSubcuentas_() {
+  const todas = leerHoja('Cuentas');
   const top = todas.filter(c => !c.parent_id);
   const byParent = {};
   todas.filter(c => c.parent_id).forEach(s => {
@@ -1330,7 +1330,7 @@ function normalizarCuentasSinSubcuentas_(owner) {
   let cambios = false;
   top.forEach(parent => {
     if (!byParent[parent.id]) {
-      crearSubcuentaDefault_(owner, parent);
+      crearSubcuentaDefault_(parent);
       cambios = true;
     }
   });
@@ -1343,7 +1343,7 @@ function guardarCuenta(cuenta) {
   const todas = leerHoja('Cuentas');
   let parent = null;
   if (cuenta.parent_id) {
-    parent = todas.find(c => c.owner === owner && c.id === cuenta.parent_id);
+    parent = todas.find(c => c.id === cuenta.parent_id);
     if (!parent) throw new Error('Cuenta padre no encontrada');
     if (parent.parent_id) throw new Error('Una subcuenta no puede tener subcuentas');
     // Subcuentas heredan tipo y moneda del padre; ignoramos lo que mande el cliente.
@@ -1355,9 +1355,9 @@ function guardarCuenta(cuenta) {
   }
   // Al editar, preservamos metadatos que el cliente no envía (orden, icono y
   // fecha de creación) para no reiniciarlos y romper el orden de subcuentas.
-  const existente = cuenta.id ? todas.find(c => c.owner === owner && c.id === cuenta.id) : null;
+  const existente = cuenta.id ? todas.find(c => c.id === cuenta.id) : null;
   const fila = {
-    owner: owner,
+    owner: (existente && existente.owner) || owner,
     id: cuenta.id || uid_('cta'),
     parent_id: cuenta.parent_id || '',
     nombre: String(cuenta.nombre).trim(),
@@ -1370,13 +1370,12 @@ function guardarCuenta(cuenta) {
     fecha_creacion: (existente && existente.fecha_creacion) || isoAhora_()
   };
   upsertFila('Cuentas', fila);
-  if (!fila.parent_id) asegurarSubcuentaDefaultCuenta_(owner, fila.id);
+  if (!fila.parent_id) asegurarSubcuentaDefaultCuenta_(fila.id);
   return obtenerCuentas();
 }
 
 function eliminarCuenta(id) {
-  const owner = username_();
-  const todas = leerHoja('Cuentas').filter(c => c.owner === owner);
+  const todas = leerHoja('Cuentas');
   const cuenta = todas.find(c => c.id === id);
   if (!cuenta) throw new Error('Cuenta no encontrada');
   const esSub = !!cuenta.parent_id;
@@ -1397,27 +1396,26 @@ function eliminarCuenta(id) {
   ));
   if (txs.length) throw new Error((esSub ? 'La subcuenta' : 'La cuenta') + ' tiene ' + txs.length + ' movimientos. Reasígnalos o elimínalos primero.');
   if (esSub) {
-    eliminarFila('Cuentas', owner, id);
+    eliminarFila('Cuentas', id);
   } else {
-    const restantes = leerHoja('Cuentas').filter(c => !(c.owner === owner && idsAEliminar.has(c.id)));
+    const restantes = leerHoja('Cuentas').filter(c => !idsAEliminar.has(c.id));
     escribirHoja('Cuentas', restantes);
   }
   return obtenerCuentas();
 }
 
 function reordenarSubcuentas(parentId, ids) {
-  const owner = username_();
   if (!parentId || !Array.isArray(ids)) throw new Error('Parámetros inválidos');
   const todas = leerHoja('Cuentas');
-  const padre = todas.find(c => c.owner === owner && c.id === parentId);
+  const padre = todas.find(c => c.id === parentId);
   if (!padre || padre.parent_id) throw new Error('Cuenta padre inválida');
   ids.forEach(id => {
-    if (!todas.some(c => c.owner === owner && c.id === id && c.parent_id === parentId)) {
+    if (!todas.some(c => c.id === id && c.parent_id === parentId)) {
       throw new Error('Subcuenta ' + id + ' no pertenece a la cuenta padre');
     }
   });
   ids.forEach((id, i) => {
-    const idx = todas.findIndex(c => c.owner === owner && c.id === id);
+    const idx = todas.findIndex(c => c.id === id);
     todas[idx].orden = i + 1;
   });
   escribirHoja('Cuentas', todas);
@@ -1425,16 +1423,15 @@ function reordenarSubcuentas(parentId, ids) {
 }
 
 function reordenarCuentas(ids) {
-  const owner = username_();
   if (!Array.isArray(ids)) throw new Error('Parámetros inválidos');
   const todas = leerHoja('Cuentas');
   ids.forEach(id => {
-    if (!todas.some(c => c.owner === owner && c.id === id && !c.parent_id)) {
+    if (!todas.some(c => c.id === id && !c.parent_id)) {
       throw new Error('Cuenta inválida');
     }
   });
   ids.forEach((id, i) => {
-    const idx = todas.findIndex(c => c.owner === owner && c.id === id);
+    const idx = todas.findIndex(c => c.id === id);
     todas[idx].orden = i + 1;
   });
   escribirHoja('Cuentas', todas);
@@ -1443,14 +1440,13 @@ function reordenarCuentas(ids) {
 
 // ───────── Categorías ─────────
 function reordenarCategorias(ids) {
-  const owner = username_();
   if (!Array.isArray(ids)) throw new Error('Parámetros inválidos');
   const todas = leerHoja('Categorias');
   ids.forEach(id => {
-    if (!todas.some(c => c.owner === owner && c.id === id)) throw new Error('Categoría inválida');
+    if (!todas.some(c => c.id === id)) throw new Error('Categoría inválida');
   });
   ids.forEach((id, i) => {
-    todas.find(c => c.owner === owner && c.id === id).orden = i + 1;
+    todas.find(c => c.id === id).orden = i + 1;
   });
   escribirHoja('Categorias', todas);
   return obtenerCategorias();
@@ -1462,9 +1458,9 @@ function obtenerCategorias() {
 
 function guardarCategoria(cat) {
   const owner = username_();
-  const existente = cat.id ? leerHoja('Categorias').find(c => c.owner === owner && c.id === cat.id) : null;
+  const existente = cat.id ? leerHoja('Categorias').find(c => c.id === cat.id) : null;
   const fila = {
-    owner: owner, id: cat.id || uid_('cat'),
+    owner: (existente && existente.owner) || owner, id: cat.id || uid_('cat'),
     nombre: String(cat.nombre).trim(), color: cat.color || '#00613e',
     icono: cat.icono || (existente && existente.icono) || 'category',
     tipo: cat.tipo || 'gasto', orden: cat.orden || (existente && existente.orden) || 99
@@ -1474,8 +1470,7 @@ function guardarCategoria(cat) {
 }
 
 function eliminarCategoria(id) {
-  const owner = username_();
-  eliminarFila('Categorias', owner, id);
+  eliminarFila('Categorias', id);
   return obtenerCategorias();
 }
 
@@ -1492,15 +1487,15 @@ function guardarEstablecimiento(est) {
   if (!nombre) throw new Error('Nombre de establecimiento obligatorio');
 
   const todos = leerHoja('Establecimientos');
-  const existente = input.id ? todos.find(e => e.owner === owner && e.id === input.id) : null;
+  const existente = input.id ? todos.find(e => e.id === input.id) : null;
   if (input.id && !existente) throw new Error('Establecimiento no encontrado');
   const nombreClave = nombre.toLowerCase();
-  if (todos.some(e => e.owner === owner && e.id !== input.id && String(e.nombre || '').trim().toLowerCase() === nombreClave)) {
+  if (todos.some(e => e.id !== input.id && String(e.nombre || '').trim().toLowerCase() === nombreClave)) {
     throw new Error('Ya existe un establecimiento con ese nombre');
   }
 
   upsertFila('Establecimientos', {
-    owner: owner,
+    owner: (existente && existente.owner) || owner,
     id: existente ? existente.id : uid_('est'),
     nombre: nombre
   });
@@ -1508,22 +1503,20 @@ function guardarEstablecimiento(est) {
 }
 
 function eliminarEstablecimiento(id) {
-  const owner = username_();
   const establecimientoId = String(id || '').trim();
-  if (!leerHoja('Establecimientos').some(e => e.owner === owner && e.id === establecimientoId)) {
+  if (!leerHoja('Establecimientos').some(e => e.id === establecimientoId)) {
     throw new Error('Establecimiento no encontrado');
   }
   if (leerHoja('Transacciones').some(t => t.establecimiento_id === establecimientoId)) {
     throw new Error('No se puede eliminar: tiene movimientos asociados');
   }
   const usadoEnRecurrente = leerHoja('Recurrentes').some(r => {
-    if (r.owner !== owner) return false;
     try { return JSON.parse(r.plantilla || '{}').establecimiento_id === establecimientoId; }
     catch (_) { return false; }
   });
   if (usadoEnRecurrente) throw new Error('No se puede eliminar: tiene plantillas recurrentes asociadas');
 
-  eliminarFila('Establecimientos', owner, establecimientoId);
+  eliminarFila('Establecimientos', establecimientoId);
   return obtenerEstablecimientos();
 }
 
@@ -1765,7 +1758,7 @@ function guardarTransaccion(tx) {
 // tx. Preserva id, owner, activa, inicio, fin y ultima_generacion.
 function actualizarPlantillaRecurrente_(owner, recurrenteId, tx, filaTx) {
   const datos = leerHoja('Recurrentes');
-  const idx = datos.findIndex(r => r.id === recurrenteId && r.owner === owner);
+  const idx = datos.findIndex(r => r.id === recurrenteId);
   if (idx < 0) return;
   const actual = datos[idx];
   let plantilla;
@@ -1798,8 +1791,7 @@ function actualizarPlantillaRecurrente_(owner, recurrenteId, tx, filaTx) {
 }
 
 function eliminarTransaccion(id) {
-  const owner = username_();
-  eliminarFila('Transacciones', owner, id);
+  eliminarFila('Transacciones', id);
   return { ok: true };
 }
 
@@ -1894,8 +1886,7 @@ function guardarRecurrente(rec) {
 }
 
 function eliminarRecurrente(id) {
-  const owner = username_();
-  eliminarFila('Recurrentes', owner, id);
+  eliminarFila('Recurrentes', id);
   return obtenerRecurrentes();
 }
 
@@ -2035,15 +2026,14 @@ function guardarPresupuesto(p) {
 }
 
 function eliminarPresupuesto(id) {
-  const owner = username_();
-  eliminarFila('Presupuestos', owner, id);
+  eliminarFila('Presupuestos', id);
   return obtenerPresupuestos();
 }
 
 // ───────── Conciliación ─────────
 function conciliar(cuenta_id, saldo_banco, fecha) {
   const owner = username_();
-  const cuenta = leerHoja('Cuentas').find(c => c.owner === owner && c.id === cuenta_id);
+  const cuenta = leerHoja('Cuentas').find(c => c.id === cuenta_id);
   if (!cuenta) throw new Error('Cuenta no encontrada');
   if (cuenta.parent_id) throw new Error('Solo se pueden conciliar cuentas, no subcuentas');
   // Saldo canónico (mismo cálculo que la UI).
@@ -2228,6 +2218,22 @@ function __selfTestBody_(owner) {
   const cat = obtenerCategorias();
   if (!cuentas.length) throw new Error('Sin cuentas');
   if (!cat.length) throw new Error('Sin categorías');
+
+  const crossOwnerCatId = uid_('cross-cat');
+  upsertFila('Categorias', {
+    owner: '__otro_owner__', id: crossOwnerCatId, nombre: 'self-cross-owner',
+    color: '#000000', icono: 'category', tipo: 'gasto', orden: 999
+  });
+  guardarCategoria({ id: crossOwnerCatId, nombre: 'self-cross-owner-edit' });
+  const crossOwnerCat = leerHoja('Categorias').find(c => c.id === crossOwnerCatId);
+  if (!crossOwnerCat || crossOwnerCat.nombre !== 'self-cross-owner-edit' || crossOwnerCat.owner !== '__otro_owner__') {
+    throw new Error('No permitió editar categoría de otro owner');
+  }
+  eliminarCategoria(crossOwnerCatId);
+  if (leerHoja('Categorias').some(c => c.id === crossOwnerCatId)) {
+    throw new Error('No permitió eliminar categoría de otro owner');
+  }
+
   const t = guardarTransaccion({
     tipo: 'gasto', importe: 12.5, cuenta_id: cuentas[0].id, categoria_id: cat[0].id,
     descripcion: 'self-test', fecha: isoHoy_()
