@@ -2215,8 +2215,21 @@ function __selfTestBody_(owner) {
   if (!resumenEst || resumenEst.gastos !== 12.5 || resumenEst.ingresos !== 20 || resumenEst.neto !== 7.5) {
     throw new Error('Resumen de establecimiento incorrecto: ' + JSON.stringify(resumenEst));
   }
-  if (!obtenerResumenEstablecimientos().filas.some(e => e.id === '')) {
+  const resumenSinEstAntes = obtenerResumenEstablecimientos().filas.find(e => e.id === '') || { ingresos: 0, gastos: 0, neto: 0 };
+  const txSinEstGasto = guardarTransaccion({
+    tipo: 'gasto', importe: 3, cuenta_id: cuentas[0].id, categoria_id: cat[0].id,
+    descripcion: 'self-est-sin-gasto', fecha: isoHoy_()
+  });
+  const txSinEstIngreso = guardarTransaccion({
+    tipo: 'ingreso', importe: 5, cuenta_id: cuentas[0].id,
+    descripcion: 'self-est-sin-ingreso', fecha: isoHoy_()
+  });
+  const resumenSinEst = obtenerResumenEstablecimientos().filas.find(e => e.id === '');
+  if (!resumenSinEst) {
     throw new Error('Falta la fila Sin establecimiento');
+  }
+  if (resumenSinEst.gastos !== resumenSinEstAntes.gastos + 3 || resumenSinEst.ingresos !== resumenSinEstAntes.ingresos + 5 || resumenSinEst.neto !== resumenSinEstAntes.neto + 2) {
+    throw new Error('Resumen sin establecimiento incorrecto: ' + JSON.stringify(resumenSinEst));
   }
   let estErr = null;
   try { eliminarEstablecimiento(establecimiento.id); }
@@ -2234,6 +2247,8 @@ function __selfTestBody_(owner) {
   if (txEstTransfer.establecimiento_id !== '') throw new Error('Transferencia conservó establecimiento');
   eliminarTransaccion(txEstGasto.id);
   eliminarTransaccion(txEstIngreso.id);
+  eliminarTransaccion(txSinEstGasto.id);
+  eliminarTransaccion(txSinEstIngreso.id);
   eliminarTransaccion(txEstTransfer.id);
   eliminarCuenta(destinoEst.id);
 
