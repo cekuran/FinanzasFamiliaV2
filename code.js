@@ -897,6 +897,25 @@ function resetSheet() {
 function username_() {
   return requireUsuario_();
 }
+function mostrarTodosLosOwners_() {
+  return true;
+}
+function filasVisibles_(nombre) {
+  const filas = leerHoja(nombre);
+  if (mostrarTodosLosOwners_()) return filas;
+  const owner = username_();
+  return filas.filter(f => f.owner === owner);
+}
+function listarOwnersConDatos_() {
+  const owners = new Set();
+  HOJAS.forEach(nombre => {
+    leerHoja(nombre).forEach(fila => {
+      const owner = String(fila.owner || '').trim();
+      if (owner) owners.add(owner);
+    });
+  });
+  return [...owners];
+}
 function uid_(prefixo) { return (prefixo || 'id') + '_' + Utilities.getUuid().slice(0, 8); }
 function isoHoy_() { return new Date().toISOString().slice(0, 10); }
 function isoAhora_() { return new Date().toISOString(); }
@@ -1051,10 +1070,16 @@ function bootstrapBase() {
   const owner = username_();
   migrarEsquema();
   asegurarUsuarios_();
-  sembrar(owner);
-  normalizarCuentasSinSubcuentas_(owner);
-  normalizarSubcuentasHuerfanas_(owner);
-  generarRecurrentesPendientes_(owner, new Date());
+  let owners = listarOwnersConDatos_();
+  if (!owners.length) {
+    sembrar(owner);
+    owners = [owner];
+  }
+  owners.forEach(ownerFila => {
+    normalizarCuentasSinSubcuentas_(ownerFila);
+    normalizarSubcuentasHuerfanas_(ownerFila);
+    generarRecurrentesPendientes_(ownerFila, new Date());
+  });
   return {
     sesion: { user: owner, rol: currentRol_() || ROLES.BASICO },
     version: PropertiesService.getScriptProperties().getProperty('VERSION') || '',
@@ -1089,8 +1114,7 @@ function incluir(html) { return HtmlService.createHtmlOutputFromFile(html).getCo
 
 // ───────── Cuentas ─────────
 function obtenerCuentas() {
-  const owner = username_();
-  const cuentas = leerHoja('Cuentas').filter(c => c.owner === owner && !c.oculta);
+  const cuentas = filasVisibles_('Cuentas').filter(c => !c.oculta);
   const txs = leerHoja('Transacciones');
   const fmtMes = d => Utilities.formatDate(d, ssActiva_().getSpreadsheetTimeZone(), 'yyyy-MM');
 
@@ -1429,8 +1453,7 @@ function reordenarCategorias(ids) {
 }
 
 function obtenerCategorias() {
-  const owner = username_();
-  return leerHoja('Categorias').filter(c => c.owner === owner).sort((a, b) => a.orden - b.orden);
+  return filasVisibles_('Categorias').sort((a, b) => a.orden - b.orden);
 }
 
 function guardarCategoria(cat) {
@@ -1454,9 +1477,7 @@ function eliminarCategoria(id) {
 
 // ───────── Establecimientos ─────────
 function obtenerEstablecimientos() {
-  const owner = username_();
-  return leerHoja('Establecimientos')
-    .filter(e => e.owner === owner)
+  return filasVisibles_('Establecimientos')
     .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es', { sensitivity: 'base' }));
 }
 
@@ -1581,9 +1602,8 @@ function validarCategoriasTransferencia_(owner, tipoPresupuesto, categoriaId, re
 }
 
 function obtenerTransacciones(filtro) {
-  const owner = username_();
   filtro = filtro || {};
-  let txs = leerHoja('Transacciones').filter(t => t.owner === owner);
+  let txs = filasVisibles_('Transacciones');
   if (filtro.cuenta_id) txs = txs.filter(t => t.cuenta_id === filtro.cuenta_id || t.cuenta_destino_id === filtro.cuenta_id);
   if (filtro.tipo) txs = txs.filter(t => t.tipo === filtro.tipo);
   if (filtro.estado) txs = txs.filter(t => t.estado === filtro.estado);
@@ -1782,8 +1802,7 @@ function eliminarTransaccion(id) {
 
 // ───────── Recurrentes ─────────
 function obtenerRecurrentes() {
-  const owner = username_();
-  return leerHoja('Recurrentes').filter(r => r.owner === owner).map(r => ({
+  return filasVisibles_('Recurrentes').map(r => ({
     id: r.id, plantilla: r.plantilla, ultima_generacion: r.ultima_generacion, activa: r.activa === true || r.activa === 'true'
   }));
 }
@@ -1995,8 +2014,7 @@ function generarRecurrentesPendientes(fechaCorte) {
 // ───────── Presupuestos ─────────
 // ponytail: one budget per category, same every month
 function obtenerPresupuestos() {
-  const owner = username_();
-  const all = leerHoja('Presupuestos').filter(p => p.owner === owner);
+  const all = filasVisibles_('Presupuestos');
   const seen = new Map();
   all.forEach(p => seen.set(p.categoria_id, p));
   return [...seen.values()];
@@ -2049,13 +2067,11 @@ function conciliar(cuenta_id, saldo_banco, fecha) {
 
 // ───────── Resumen y evolución ─────────
 function obtenerResumen(anio, mes) {
-  const owner = username_();
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
   const txs = leerHoja('Transacciones');
   const cuentasById = {};
-  leerHoja('Cuentas')
-    .filter(c => c.owner === owner)
+  filasVisibles_('Cuentas')
     .forEach(c => { cuentasById[c.id] = c; });
   const enMes = txs.filter(t => {
     const f = new Date(t.fecha);
@@ -2086,7 +2102,7 @@ function obtenerResumen(anio, mes) {
     });
   }
   // Próximos recurrentes
-  const recs = leerHoja('Recurrentes').filter(r => r.owner === owner && r.activa);
+  const recs = filasVisibles_('Recurrentes').filter(r => r.activa);
   const proximos = recs.map(r => {
     try {
       const p = JSON.parse(r.plantilla);
@@ -2136,17 +2152,15 @@ function obtenerResumenEstablecimientos(anio, mes) {
 }
 
 function obtenerCategoriasResumen(anio, mes) {
-  const owner = username_();
   const a = anio || new Date().getFullYear();
   const m = mes || (new Date().getMonth() + 1);
   const txs = leerHoja('Transacciones').filter(t => ['gasto', 'ingreso', 'transferencia'].includes(t.tipo));
-  const ps = leerHoja('Presupuestos').filter(p => p.owner === owner);
+  const ps = filasVisibles_('Presupuestos');
   const cats = obtenerCategorias();
   const catsById = {};
   cats.forEach(c => { catsById[c.id] = c; });
   const cuentasById = {};
-  leerHoja('Cuentas')
-    .filter(c => c.owner === owner)
+  filasVisibles_('Cuentas')
     .forEach(c => { cuentasById[c.id] = c; });
   // Reparto destino de transferencias: cada subcuenta se imputa a su propia
   // categoría (gasto o ingreso según la dirección activo/pasivo).
