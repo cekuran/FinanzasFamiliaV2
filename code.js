@@ -5,7 +5,8 @@
 const SCHEMA = {
   Cuentas:       ['owner','id','parent_id','nombre','tipo','moneda','icono','saldo_inicial','orden','oculta','fecha_creacion'],
   Categorias:    ['owner','id','nombre','color','icono','tipo','orden'],
-  Transacciones: ['owner','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','subcuenta_destino_id','importe_destino','ratio_conversion','reparto_destino','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion','ultima_edicion_por','fecha_ultima_edicion'],
+  Establecimientos:['owner','id','nombre'],
+  Transacciones: ['owner','id','fecha','tipo','importe','moneda','cuenta_id','subcuenta_id','cuenta_destino_id','subcuenta_destino_id','importe_destino','ratio_conversion','reparto_destino','categoria_id','descripcion','estado','recurrente_id','fecha_pago','conciliada_con','notas','fecha_creacion','ultima_edicion_por','fecha_ultima_edicion','establecimiento_id'],
   Recurrentes:   ['owner','id','plantilla','ultima_generacion','activa'],
   Presupuestos:  ['owner','id','anio','mes','categoria_id','importe_esperado'],
   Conciliaciones:['owner','id','fecha','cuenta_id','saldo_sistema','saldo_banco','diferencia','notas'],
@@ -1061,6 +1062,7 @@ function bootstrapBase() {
     hojaActivaId: _currentSheetId || resolverHojaActivaId_(owner),
     cuentas: obtenerCuentas(),
     categorias: obtenerCategorias(),
+    establecimientos: obtenerEstablecimientos(),
     recurrentes: obtenerRecurrentes(),
     presupuestos: obtenerPresupuestos(),
     resumen: obtenerResumen()
@@ -1450,6 +1452,56 @@ function eliminarCategoria(id) {
   return obtenerCategorias();
 }
 
+// ───────── Establecimientos ─────────
+function obtenerEstablecimientos() {
+  const owner = username_();
+  return leerHoja('Establecimientos')
+    .filter(e => e.owner === owner)
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es', { sensitivity: 'base' }));
+}
+
+function guardarEstablecimiento(est) {
+  const owner = username_();
+  const input = est || {};
+  const nombre = String(input.nombre || '').trim();
+  if (!nombre) throw new Error('Nombre de establecimiento obligatorio');
+
+  const todos = leerHoja('Establecimientos');
+  const existente = input.id ? todos.find(e => e.owner === owner && e.id === input.id) : null;
+  if (input.id && !existente) throw new Error('Establecimiento no encontrado');
+  const nombreClave = nombre.toLowerCase();
+  if (todos.some(e => e.owner === owner && e.id !== input.id && String(e.nombre || '').trim().toLowerCase() === nombreClave)) {
+    throw new Error('Ya existe un establecimiento con ese nombre');
+  }
+
+  upsertFila('Establecimientos', {
+    owner: owner,
+    id: existente ? existente.id : uid_('est'),
+    nombre: nombre
+  });
+  return obtenerEstablecimientos();
+}
+
+function eliminarEstablecimiento(id) {
+  const owner = username_();
+  const establecimientoId = String(id || '').trim();
+  if (!leerHoja('Establecimientos').some(e => e.owner === owner && e.id === establecimientoId)) {
+    throw new Error('Establecimiento no encontrado');
+  }
+  if (leerHoja('Transacciones').some(t => t.owner === owner && t.establecimiento_id === establecimientoId)) {
+    throw new Error('No se puede eliminar: tiene movimientos asociados');
+  }
+  const usadoEnRecurrente = leerHoja('Recurrentes').some(r => {
+    if (r.owner !== owner) return false;
+    try { return JSON.parse(r.plantilla || '{}').establecimiento_id === establecimientoId; }
+    catch (_) { return false; }
+  });
+  if (usadoEnRecurrente) throw new Error('No se puede eliminar: tiene plantillas recurrentes asociadas');
+
+  eliminarFila('Establecimientos', owner, establecimientoId);
+  return obtenerEstablecimientos();
+}
+
 // ───────── Transacciones ─────────
 function parseFecha(s) {
   if (!s) return null;
@@ -1518,8 +1570,9 @@ function validarCategoriasTransferencia_(owner, tipoPresupuesto, categoriaId, re
 }
 
 function obtenerTransacciones(filtro) {
+  const owner = username_();
   filtro = filtro || {};
-  let txs = leerHoja('Transacciones');
+  let txs = leerHoja('Transacciones').filter(t => t.owner === owner);
   if (filtro.cuenta_id) txs = txs.filter(t => t.cuenta_id === filtro.cuenta_id || t.cuenta_destino_id === filtro.cuenta_id);
   if (filtro.tipo) txs = txs.filter(t => t.tipo === filtro.tipo);
   if (filtro.estado) txs = txs.filter(t => t.estado === filtro.estado);
@@ -1550,9 +1603,17 @@ function guardarTransaccion(tx) {
   const fecha = parseFecha(tx.fecha);
   if (!fecha) throw new Error('Fecha inválida');
   const txs = leerHoja('Transacciones');
-  const existente = tx.id ? txs.find(t => t.id === tx.id) : null;
-  const ownerTx = (existente && existente.owner) ? existente.owner : owner;
+  const existente = tx.id ? txs.find(t => t.id === tx.id && t.owner === owner) : null;
+  if (tx.id && !existente) throw new Error('Transacción no encontrada');
+  const ownerTx = owner;
   const cuentasHoja = leerHoja('Cuentas').filter(c => c.owner === ownerTx);
+  let establecimiento_id = '';
+  const establecimientoSolicitado = String(tx.establecimiento_id || '').trim();
+  if (tipo !== 'transferencia' && establecimientoSolicitado) {
+    const valido = leerHoja('Establecimientos').some(e => e.owner === ownerTx && e.id === establecimientoSolicitado);
+    if (!valido) throw new Error('Establecimiento no encontrado');
+    establecimiento_id = establecimientoSolicitado;
+  }
   let subcuenta_id = '';
   if (tx.subcuenta_id) {
     const sub = cuentasHoja.find(c => c.id === tx.subcuenta_id && c.parent_id === tx.cuenta_id);
@@ -1621,6 +1682,7 @@ function guardarTransaccion(tx) {
     ratio_conversion: tx.ratio_conversion ? Number(tx.ratio_conversion) : '',
     reparto_destino: repartoDestinoJson,
     categoria_id: tx.categoria_id || '',
+    establecimiento_id: establecimiento_id,
     descripcion: String(tx.descripcion || '').trim(),
     estado: tx.estado || 'pendiente',
     // ponytail: preservar el recurrente existente cuando el payload no lo
@@ -1681,6 +1743,7 @@ function actualizarPlantillaRecurrente_(owner, recurrenteId, tx, filaTx) {
     ratio_conversion: filaTx.ratio_conversion || '',
     reparto_destino: nuevoReparto,
     categoria_id: filaTx.categoria_id || '',
+    establecimiento_id: filaTx.establecimiento_id || '',
     descripcion: filaTx.descripcion || plantilla.descripcion || '',
     periodo_meses: Number(tx.recurrente_periodo_meses || plantilla.periodo_meses || 1),
     dia_mes: Number(tx.recurrente_dia || plantilla.dia_mes || 1)
@@ -1694,8 +1757,8 @@ function actualizarPlantillaRecurrente_(owner, recurrenteId, tx, filaTx) {
 }
 
 function eliminarTransaccion(id) {
-  const datos = leerHoja('Transacciones').filter(t => t.id !== id);
-  escribirHoja('Transacciones', datos);
+  const owner = username_();
+  eliminarFila('Transacciones', owner, id);
   return { ok: true };
 }
 
@@ -1724,6 +1787,17 @@ function validarPlantillaRecurrente_(owner, plantilla) {
     throw new Error('El periodo debe ser un entero entre 1 y 12 meses');
   }
   p.periodo_meses = periodo;
+  const establecimientoId = String(p.establecimiento_id || '').trim();
+  if (p.tipo === 'transferencia') {
+    p.establecimiento_id = '';
+  } else if (establecimientoId) {
+    if (!leerHoja('Establecimientos').some(e => e.owner === owner && e.id === establecimientoId)) {
+      throw new Error('Establecimiento no encontrado');
+    }
+    p.establecimiento_id = establecimientoId;
+  } else {
+    p.establecimiento_id = '';
+  }
   if (p.tipo !== 'transferencia') return p;
 
   if (!p.cuenta_destino_id) throw new Error('Cuenta destino obligatoria en transferencia recurrente');
@@ -1794,7 +1868,7 @@ function upsertRecurrenteBase_(owner, tx) {
     importe_destino: tx.importe_destino ? Number(tx.importe_destino) : '',
     ratio_conversion: tx.ratio_conversion ? Number(tx.ratio_conversion) : '',
     reparto_destino: Array.isArray(tx.reparto_destino) ? JSON.stringify(tx.reparto_destino) : (tx.reparto_destino || ''),
-    categoria_id: tx.categoria_id || '', descripcion: tx.descripcion || '',
+    categoria_id: tx.categoria_id || '', establecimiento_id: tx.establecimiento_id || '', descripcion: tx.descripcion || '',
     periodo_meses: Number(tx.recurrente_periodo_meses || 1), dia_mes: tx.recurrente_dia || Number(String(tx.fecha).slice(8, 10)),
     inicio: iso_(tx.fecha), fin: tx.recurrente_fin || ''
   };
@@ -1845,7 +1919,9 @@ function generarRecurrentesPendientes_(owner, fechaCorte) {
             importe_destino: p.importe_destino || '',
             ratio_conversion: p.ratio_conversion || '',
             reparto_destino: p.reparto_destino || '',
-            categoria_id: p.categoria_id || '', descripcion: p.descripcion || '',
+            categoria_id: p.categoria_id || '',
+            establecimiento_id: p.tipo === 'transferencia' ? '' : (p.establecimiento_id || ''),
+            descripcion: p.descripcion || '',
             estado: 'pendiente', recurrente_id: r.id, fecha_pago: '', conciliada_con: '', notas: '',
             fecha_creacion: isoAhora_(),
             ultima_edicion_por: actor,
@@ -2016,6 +2092,32 @@ function obtenerResumen(anio, mes) {
   };
 }
 
+function obtenerResumenEstablecimientos(anio, mes) {
+  const owner = username_();
+  const a = Number(anio || new Date().getFullYear());
+  const m = Number(mes || (new Date().getMonth() + 1));
+  const filas = obtenerEstablecimientos().map(e => ({
+    id: e.id,
+    nombre: e.nombre,
+    ingresos: 0,
+    gastos: 0,
+    neto: 0
+  }));
+  filas.push({ id: '', nombre: 'Sin establecimiento', ingresos: 0, gastos: 0, neto: 0 });
+  const porId = {};
+  filas.forEach(f => { porId[f.id] = f; });
+  const periodo = a + '-' + String(m).padStart(2, '0');
+
+  leerHoja('Transacciones')
+    .filter(t => t.owner === owner && String(t.fecha).slice(0, 7) === periodo && (t.tipo === 'gasto' || t.tipo === 'ingreso'))
+    .forEach(t => {
+      const fila = porId[String(t.establecimiento_id || '')] || porId[''];
+      fila[t.tipo === 'ingreso' ? 'ingresos' : 'gastos'] += Number(t.importe || 0);
+    });
+  filas.forEach(f => { f.neto = f.ingresos - f.gastos; });
+  return { anio: a, mes: m, filas: filas };
+}
+
 function obtenerCategoriasResumen(anio, mes) {
   const owner = username_();
   const a = anio || new Date().getFullYear();
@@ -2098,6 +2200,72 @@ function __selfTestBody_(owner) {
   });
   if (!t.id) throw new Error('Fallo al guardar transacción');
   eliminarTransaccion(t.id);
+
+  const estNombre = 'self-est-' + Utilities.getUuid().slice(0, 8);
+  const establecimiento = guardarEstablecimiento({ nombre: estNombre }).find(e => e.nombre === estNombre);
+  if (!establecimiento) throw new Error('Fallo al crear establecimiento');
+  const txEstGasto = guardarTransaccion({
+    tipo: 'gasto', importe: 12.5, cuenta_id: cuentas[0].id, categoria_id: cat[0].id,
+    establecimiento_id: establecimiento.id, descripcion: 'self-est-gasto', fecha: isoHoy_()
+  });
+  const txEstIngreso = guardarTransaccion({
+    tipo: 'ingreso', importe: 20, cuenta_id: cuentas[0].id,
+    establecimiento_id: establecimiento.id, descripcion: 'self-est-ingreso', fecha: isoHoy_()
+  });
+  const resumenEst = obtenerResumenEstablecimientos().filas.find(e => e.id === establecimiento.id);
+  if (!resumenEst || resumenEst.gastos !== 12.5 || resumenEst.ingresos !== 20 || resumenEst.neto !== 7.5) {
+    throw new Error('Resumen de establecimiento incorrecto: ' + JSON.stringify(resumenEst));
+  }
+  if (!obtenerResumenEstablecimientos().filas.some(e => e.id === '')) {
+    throw new Error('Falta la fila Sin establecimiento');
+  }
+  let estErr = null;
+  try { eliminarEstablecimiento(establecimiento.id); }
+  catch (e) { estErr = e.message; }
+  if (!estErr || !/movimientos asociados/.test(estErr)) throw new Error('No bloqueó establecimiento con movimientos: ' + estErr);
+
+  const destinoEstNombre = 'self-est-dest-' + Utilities.getUuid().slice(0, 8);
+  const destinoEst = guardarCuenta({
+    nombre: destinoEstNombre, tipo: cuentas[0].tipo, moneda: cuentas[0].moneda || 'EUR', saldo_inicial: 0
+  }).find(c => c.nombre === destinoEstNombre);
+  const txEstTransfer = guardarTransaccion({
+    tipo: 'transferencia', importe: 1, cuenta_id: cuentas[0].id, cuenta_destino_id: destinoEst.id,
+    establecimiento_id: establecimiento.id, descripcion: 'self-est-transfer', fecha: isoHoy_()
+  });
+  if (txEstTransfer.establecimiento_id !== '') throw new Error('Transferencia conservó establecimiento');
+  eliminarTransaccion(txEstGasto.id);
+  eliminarTransaccion(txEstIngreso.id);
+  eliminarTransaccion(txEstTransfer.id);
+  eliminarCuenta(destinoEst.id);
+
+  const recEstId = uid_('rec');
+  const recEstDesc = 'self-est-rec-' + Utilities.getUuid().slice(0, 8);
+  guardarRecurrente({
+    id: recEstId,
+    plantilla: {
+      tipo: 'gasto', importe: 3.21, cuenta_id: cuentas[0].id, categoria_id: cat[0].id,
+      establecimiento_id: establecimiento.id, descripcion: recEstDesc,
+      periodo_meses: 1, dia_mes: Number(isoHoy_().slice(8, 10)), inicio: isoHoy_()
+    },
+    ultima_generacion: '', activa: true
+  });
+  const recEst = leerHoja('Recurrentes').find(r => r.owner === owner && r.id === recEstId);
+  if (!recEst || JSON.parse(recEst.plantilla).establecimiento_id !== establecimiento.id) {
+    throw new Error('Plantilla recurrente perdió establecimiento');
+  }
+  estErr = null;
+  try { eliminarEstablecimiento(establecimiento.id); }
+  catch (e) { estErr = e.message; }
+  if (!estErr || !/plantillas recurrentes/.test(estErr)) throw new Error('No bloqueó establecimiento recurrente: ' + estErr);
+  generarRecurrentesPendientes_(owner, new Date());
+  const txEstGenerada = leerHoja('Transacciones').find(x => x.owner === owner && x.recurrente_id === recEstId);
+  if (!txEstGenerada || txEstGenerada.establecimiento_id !== establecimiento.id) {
+    throw new Error('Transacción recurrente perdió establecimiento');
+  }
+  eliminarTransaccion(txEstGenerada.id);
+  eliminarRecurrente(recEstId);
+  eliminarEstablecimiento(establecimiento.id);
+
   const conciliado = conciliar(cuentas[0].id, cuentas[0].saldo || 0, isoHoy_());
   if (typeof conciliado.diferencia !== 'number') throw new Error('Fallo en conciliación');
 
