@@ -776,6 +776,7 @@
           <button data-nav="prev">‹</button>
           <span class="is-on" id="presMesLabel" style="padding: 6px 12px;">—</span>
           <button data-nav="next">›</button>
+          <input class="input" type="month" id="presMesPick" aria-label="Seleccionar mes" style="padding: 4px 8px; min-width: 130px;">
         </div>
       </div>
 
@@ -908,6 +909,7 @@
             <button type="button" data-est-nav="prev" aria-label="Mes anterior">‹</button>
             <span class="is-on" id="estMesLabel" style="padding: 6px 12px;">—</span>
             <button type="button" data-est-nav="next" aria-label="Mes siguiente">›</button>
+            <input class="input" type="month" id="estMesPick" aria-label="Seleccionar mes" style="padding: 4px 8px; min-width: 130px;">
           </div>
           <button class="btn btn-primary" id="btnNuevoEst"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg> Nuevo establecimiento</button>
         </div>
@@ -2382,8 +2384,16 @@ $$('[data-est-nav]').forEach(b => b.addEventListener('click', () => {
   else { mes++; if (mes > 12) { mes = 1; anio++; } }
   Estado.estMes.anio = anio;
   Estado.estMes.mes = mes;
+  $('#estMesPick').value = `${anio}-${String(mes).padStart(2,'0')}`;
   renderEstablecimientos();
 }));
+$('#estMesPick').value = `${Estado.estMes.anio}-${String(Estado.estMes.mes).padStart(2,'0')}`;
+$('#estMesPick').addEventListener('change', e => {
+  const [y, m] = e.target.value.split('-').map(Number);
+  if (!y || !m) return;
+  Estado.estMes.anio = y; Estado.estMes.mes = m;
+  renderEstablecimientos();
+});
 
 // === Presupuesto ===
 function presClave(anio, mes, cat) { return anio + '-' + mes + '-' + cat; }
@@ -2439,8 +2449,16 @@ $$('[data-nav]').forEach(b => b.addEventListener('click', () => {
   if (b.dataset.nav === 'prev') { mes--; if (mes < 1) { mes = 12; anio--; } }
   else { mes++; if (mes > 12) { mes = 1; anio++; } }
   Estado.pres.anio = anio; Estado.pres.mes = mes;
+  $('#presMesPick').value = `${anio}-${String(mes).padStart(2,'0')}`;
   renderPresupuesto();
 }));
+$('#presMesPick').value = `${Estado.pres.anio}-${String(Estado.pres.mes).padStart(2,'0')}`;
+$('#presMesPick').addEventListener('change', e => {
+  const [y, m] = e.target.value.split('-').map(Number);
+  if (!y || !m) return;
+  Estado.pres.anio = y; Estado.pres.mes = m;
+  renderPresupuesto();
+});
 
 $('#presCats').addEventListener('change', async e => {
   const input = e.target.closest('[data-ppto-cat]');
