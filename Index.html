@@ -1615,8 +1615,7 @@ function actualizarNombreHojaUI() {
   if (title) title.textContent = texto;
   const foot = $('#sidebarFoot');
   if (foot) {
-    const v = Estado.bootstrap.version;
-    foot.textContent = (v ? 'v' + v + ' · ' : '') + texto;
+    foot.textContent = texto;
   }
 }
 
