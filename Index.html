@@ -3499,8 +3499,10 @@ function actualizarDestinoRecurrente(preferred) {
 
   const ctaD = Estado.bootstrap.cuentas.find(c => c.id === cuentaDestinoValida);
   const subsD = (ctaD && ctaD.subcuentas) || [];
-  // ponytail: misma cuenta → la subcuenta de origen no puede ser destino.
-  const subOrigenIdRec = $('#recSubcuenta').value;
+  // ponytail: misma cuenta → la subcuenta de origen no puede ser destino. El
+  // rec sheet no expone un dropdown de subcuenta origen; solo viene en la
+  // plantilla al editar.
+  const subOrigenIdRec = (preferred && preferred.subcuenta_id) || '';
   const sameParentRec = !!cuentaOrigenId && cuentaOrigenId === cuentaDestinoValida;
   const subsDOptsRec = (sameParentRec && subOrigenIdRec)
     ? subsD.filter(s => s.id !== subOrigenIdRec)
@@ -3589,13 +3591,6 @@ $('#recCuenta').addEventListener('change', () => {
 $('#recCuentaDest').addEventListener('change', () => {
   actualizarDestinoRecurrente({ keepCurrent: true });
   poblarCategoriasRecurrente($('#recTipo').value, $('#recCat').value, $('#recCuenta').value, $('#recCuentaDest').value);
-});
-$('#recSubcuenta').addEventListener('change', () => {
-  // ponytail: si origen y destino son la misma cuenta, la subcuenta origen
-  // ya no debe aparecer como destino del reparto ni del dropdown.
-  if ($('#recTipo').value !== 'transferencia') return;
-  if ($('#recCuenta').value !== $('#recCuentaDest').value) return;
-  actualizarDestinoRecurrente({ keepCurrent: true });
 });
 $('#recPer').addEventListener('input', () => {
   if ($('#recTipo').value !== 'transferencia') return;
