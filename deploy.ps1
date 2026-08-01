@@ -90,6 +90,9 @@ $index = Get-Content -Raw -Path $indexPath
 $urlPattern = 'https://script\.google\.com/macros/s/[^/]+/exec'
 $updated = [regex]::Replace($index, $urlPattern, "https://script.google.com/macros/s/$newId/exec")
 
+$versionPattern = '<p class="version">[^<]*</p>'
+$updated = [regex]::Replace($updated, $versionPattern, "<p class=""version"">$version</p>")
+
 if ($updated -eq $index) { Write-Warning 'No URL replaced — pattern may have shifted.' }
 
 Set-Content -Path $indexPath -Value $updated -NoNewline
