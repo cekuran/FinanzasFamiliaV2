@@ -473,6 +473,7 @@
   .reparto-row .select { flex: 2; }
   .reparto-row .input { flex: 1; }
   .reparto-row .input.reparto-imp-auto { background: var(--surface-container-high); }
+  .reparto-row .reparto-help { flex: 1 0 100%; color: var(--on-surface-variant); margin-top: 2px; }
   .reparto-row .icon-btn { flex: 0; }
   .reparto-total-ok { color: var(--primary) !important; }
   .reparto-total-bad { color: var(--error) !important; }
@@ -2640,7 +2641,7 @@ function montoColectarDesdeUso_(periodoUso, montoSubcuenta, periodoColecta) {
   const monto = Number(montoSubcuenta || 0);
   const perColecta = Number(periodoColecta || 0);
   if (!(perUso > 0) || !(monto > 0) || !(perColecta > 0)) return 0;
-  return (perUso * monto) / perColecta;
+  return (perColecta * monto) / perUso;
 }
 
 function isTransferenciaRecurrenteTx_() {
@@ -2695,11 +2696,12 @@ function buildRepartoRow(subsD, row, idx) {
   if (recurrenteTransfer) {
     div.innerHTML = `
       <select class="select reparto-sub">${opts}</select>
-      <input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Periodo uso" value="${row.periodo_uso || ''}">
-      <input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="Monto a usar" value="${row.monto_a_usar || ''}">
-      <input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Monto a colectar" value="${row.importe || ''}" readonly>
+      <input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Periodo de uso (meses de uso real)" value="${row.periodo_uso || ''}" title="Periodo de uso: meses en los que se consumirá este monto">
+      <input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="Monto a usar (monto total para ese periodo)" value="${row.monto_a_usar || ''}" title="Monto a usar: monto total que quieres distribuir en el periodo de uso">
+      <input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Monto a colectar (calculado automáticamente)" value="${row.importe || ''}" title="Monto a colectar: resultado automático con la fórmula" readonly>
       <select class="select reparto-cat">${catOpts}</select>
       <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
+      <div class="reparto-help body-sm">Periodo de uso: meses de consumo. Monto a usar: objetivo total del periodo. Monto a colectar: calculado automáticamente con el periodo de colecta.</div>
     `;
   } else {
     div.innerHTML = `
@@ -3334,10 +3336,11 @@ function buildRepartoRowRec(subsD, row, idx) {
   ).join('');
   div.innerHTML = `
     <select class="select reparto-sub">${opts}</select>
-    <input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Periodo uso" value="${row.periodo_uso || ''}">
-    <input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="Monto a usar" value="${row.monto_a_usar || ''}">
-    <input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Monto a colectar" value="${row.importe || ''}" readonly>
+    <input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Periodo de uso (meses de uso real)" value="${row.periodo_uso || ''}" title="Periodo de uso: meses en los que se consumirá este monto">
+    <input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="Monto a usar (monto total para ese periodo)" value="${row.monto_a_usar || ''}" title="Monto a usar: monto total que quieres distribuir en el periodo de uso">
+    <input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Monto a colectar (calculado automáticamente)" value="${row.importe || ''}" title="Monto a colectar: resultado automático con la fórmula" readonly>
     <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
+    <div class="reparto-help body-sm">Periodo de uso: meses de consumo. Monto a usar: objetivo total del periodo. Monto a colectar: calculado automáticamente con el periodo de colecta.</div>
   `;
   div.querySelector('.reparto-sub').addEventListener('change', e => {
     Estado.repRecDest[idx].subcuenta_id = e.target.value;
