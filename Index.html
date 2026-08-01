@@ -2569,7 +2569,8 @@ function actualizarSubcuentasTx(preferred) {
   if (lblO) lblO.textContent = isTransfer ? 'Subcuenta origen' : 'Subcuenta';
   const selO = $('#txSubcuenta');
   if (visOrigen) {
-    const current = preferred ? preferred.subcuenta_id : selO.value;
+    let current = preferred ? preferred.subcuenta_id : selO.value;
+    if (!current) current = subs[0].id; // ponytail: al elegir cuenta, primera subcuenta por defecto
     selO.innerHTML = '<option value="">— Ninguna —</option>' + subs.map(s =>
       `<option value="${s.id}" ${s.id === current ? 'selected' : ''}>${escape(s.nombre)}</option>`
     ).join('');
@@ -2606,6 +2607,9 @@ function actualizarSubcuentasTx(preferred) {
     Estado.txRepartoDest = preferido.filter(r => validIds.has(r.subcuenta_id));
   } else if (Estado.txRepartoDest.length && Estado._lastCtaDestinoId !== $('#txCuentaDest').value) {
     Estado.txRepartoDest = Estado.txRepartoDest.filter(r => validIds.has(r.subcuenta_id));
+  } else if (!Estado.txRepartoDest.length && subsD.length) {
+    // ponytail: al elegir destino con subcuentas, primera como fila inicial
+    Estado.txRepartoDest.push({ subcuenta_id: subsD[0].id, importe: 0, categoria_id: '', periodo_uso: 0, monto_a_usar: 0 });
   }
   Estado._lastCtaDestinoId = $('#txCuentaDest').value;
   renderRepartoRows(subsD, Estado.txRepartoDest);
