@@ -3344,7 +3344,8 @@ $('#formResetConfig').addEventListener('submit', async (e) => {
 // campos que el sheet no expone (subcuenta_id, cuenta_destino_id, reparto).
 const recDraft = { id: '', plantilla: '', ultima_generacion: '' };
 // ponytail: helpers paralelos a los del tx sheet (renderRepartoRows, etc.).
-// El rec sheet no expone categoría por fila — usa una sola categoria_id global.
+// catOpts viene de categoriasTransferenciaSegunDireccion_ con las cuentas
+// origen/destino actuales del rec sheet; igual que en buildRepartoRow.
 function renderRepartoRowsRec(subsD, rows) {
   const wrap = $('#recRepartoList');
   wrap.innerHTML = '';
@@ -3364,16 +3365,23 @@ function buildRepartoRowRec(subsD, row, idx) {
   const opts = '<option value="">— Subcuenta —</option>' + subsD.map(s =>
     `<option value="${s.id}" ${s.id === row.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
   ).join('');
+  const catOpts = '<option value="">— Categoría —</option>' + categoriasTransferenciaSegunDireccion_($('#recCuenta').value, $('#recCuentaDest').value).map(c =>
+    `<option value="${c.id}" ${c.id === row.categoria_id ? 'selected' : ''}>${escape(c.nombre)}</option>`
+  ).join('');
   div.innerHTML = `
     <div class="field field-sub"><label>Subcta</label><select class="select reparto-sub">${opts}</select></div>
     <div class="field field-num"><label>Per. uso</label><input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Meses" value="${row.periodo_uso || ''}" title="Meses de uso"></div>
     <div class="field field-num"><label>Monto uso</label><input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="0,00" value="${row.monto_a_usar || ''}" title="Monto total a usar"></div>
     <div class="field field-num"><label>Monto col.</label><input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Auto" value="${row.importe || ''}" title="Monto a colectar" readonly></div>
+    <div class="field field-cat"><label>Cat.</label><select class="select reparto-cat">${catOpts}</select></div>
     <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
   `;
   div.querySelector('.reparto-sub').addEventListener('change', e => {
     Estado.repRecDest[idx].subcuenta_id = e.target.value;
     actualizarTotalRepartoRec();
+  });
+  div.querySelector('.reparto-cat').addEventListener('change', e => {
+    Estado.repRecDest[idx].categoria_id = e.target.value;
   });
   div.querySelector('.reparto-periodo-uso').addEventListener('input', e => {
     Estado.repRecDest[idx].periodo_uso = Number(e.target.value || 0);
