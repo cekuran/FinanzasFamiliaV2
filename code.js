@@ -2093,7 +2093,6 @@ function obtenerResumen(anio, mes) {
 }
 
 function obtenerResumenEstablecimientos(anio, mes) {
-  const owner = username_();
   const a = Number(anio || new Date().getFullYear());
   const m = Number(mes || (new Date().getMonth() + 1));
   const filas = obtenerEstablecimientos().map(e => ({
@@ -2109,7 +2108,7 @@ function obtenerResumenEstablecimientos(anio, mes) {
   const periodo = a + '-' + String(m).padStart(2, '0');
 
   leerHoja('Transacciones')
-    .filter(t => t.owner === owner && String(t.fecha).slice(0, 7) === periodo && (t.tipo === 'gasto' || t.tipo === 'ingreso'))
+    .filter(t => String(t.fecha).slice(0, 7) === periodo && (t.tipo === 'gasto' || t.tipo === 'ingreso'))
     .forEach(t => {
       const fila = porId[String(t.establecimiento_id || '')] || porId[''];
       fila[t.tipo === 'ingreso' ? 'ingresos' : 'gastos'] += Number(t.importe || 0);
