@@ -472,8 +472,13 @@
   .reparto-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
   .reparto-row .select { flex: 2; }
   .reparto-row .input { flex: 1; }
+  .reparto-row .field { min-width: 120px; }
+  .reparto-row .field.field-sub { flex: 2; min-width: 170px; }
+  .reparto-row .field.field-cat { flex: 2; min-width: 150px; }
+  .reparto-row .field.field-num { flex: 1; min-width: 120px; }
+  .reparto-row .field .select,
+  .reparto-row .field .input { width: 100%; }
   .reparto-row .input.reparto-imp-auto { background: var(--surface-container-high); }
-  .reparto-row .reparto-help { flex: 1 0 100%; color: var(--on-surface-variant); margin-top: 2px; }
   .reparto-row .icon-btn { flex: 0; }
   .reparto-total-ok { color: var(--primary) !important; }
   .reparto-total-bad { color: var(--error) !important; }
@@ -2499,10 +2504,7 @@ function openTx(id) {
   syncDestino();
   $('#txEstado').value = f.estado || 'pendiente';
   $('#txNotas').value = f.notas || '';
-  // Pasar `f` a actualizarSubcuentasTx para que pinte el reparto desde
-  // reparto_destino (o el legacy subcuenta_destino_id) en el primer render.
-  actualizarSubcuentasTx(f);
-  if ((f.tipo || 'gasto') === 'transferencia') syncCategoriasTransferenciaTx_(f.categoria_id || '');
+
   Estado.recPlantillaId = '';
   if (f.recurrente_id) {
     const rec = Estado.bootstrap.recurrentes.find(r => r.id === f.recurrente_id);
@@ -2511,10 +2513,23 @@ function openTx(id) {
       Estado.recPlantillaId = rec.id;
       $('#txRecPeriodoMeses').value = p.periodo_meses || 1;
       $('#txRecDia').value = p.dia_mes || Number((f.fecha || '').slice(8, 10)) || 1;
+    } else {
+      // Si existe recurrente_id pero no llegó la plantilla, mantener la UI de
+      // recurrente visible para no degradar la edición.
+      $('#txRecPeriodoMeses').value = 1;
+      $('#txRecDia').value = Number((f.fecha || '').slice(8, 10)) || 1;
     }
   }
-  $('#txRecurrenteSwitch').checked = !!Estado.recPlantillaId;
+
+  // El switch debe depender del vínculo recurrente de la tx, no solo de que
+  // la plantilla esté en bootstrap, para mostrar siempre la UI correcta.
+  $('#txRecurrenteSwitch').checked = !!f.recurrente_id;
   $('#wrapRecurrente').style.display = $('#txRecurrenteSwitch').checked ? 'flex' : 'none';
+
+  // Pasar `f` después de resolver el switch recurrente para que el reparto
+  // pinte la variante de UI correcta en la primera apertura.
+  actualizarSubcuentasTx(f);
+  if ((f.tipo || 'gasto') === 'transferencia') syncCategoriasTransferenciaTx_(f.categoria_id || '');
   actualizarTotalReparto();
   openSheet('sheetTx');
 }
@@ -2695,13 +2710,12 @@ function buildRepartoRow(subsD, row, idx) {
   ).join('');
   if (recurrenteTransfer) {
     div.innerHTML = `
-      <select class="select reparto-sub">${opts}</select>
-      <input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Periodo de uso (meses de uso real)" value="${row.periodo_uso || ''}" title="Periodo de uso: meses en los que se consumirá este monto">
-      <input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="Monto a usar (monto total para ese periodo)" value="${row.monto_a_usar || ''}" title="Monto a usar: monto total que quieres distribuir en el periodo de uso">
-      <input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Monto a colectar (calculado automáticamente)" value="${row.importe || ''}" title="Monto a colectar: resultado automático con la fórmula" readonly>
-      <select class="select reparto-cat">${catOpts}</select>
+      <div class="field field-sub"><label>Subcta</label><select class="select reparto-sub">${opts}</select></div>
+      <div class="field field-num"><label>Per. uso</label><input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Meses" value="${row.periodo_uso || ''}" title="Meses de uso"></div>
+      <div class="field field-num"><label>Monto uso</label><input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="0,00" value="${row.monto_a_usar || ''}" title="Monto total a usar"></div>
+      <div class="field field-num"><label>Monto col.</label><input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Auto" value="${row.importe || ''}" title="Monto a colectar" readonly></div>
+      <div class="field field-cat"><label>Cat.</label><select class="select reparto-cat">${catOpts}</select></div>
       <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
-      <div class="reparto-help body-sm">Periodo de uso: meses de consumo. Monto a usar: objetivo total del periodo. Monto a colectar: calculado automáticamente con el periodo de colecta.</div>
     `;
   } else {
     div.innerHTML = `
@@ -3335,12 +3349,11 @@ function buildRepartoRowRec(subsD, row, idx) {
     `<option value="${s.id}" ${s.id === row.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
   ).join('');
   div.innerHTML = `
-    <select class="select reparto-sub">${opts}</select>
-    <input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Periodo de uso (meses de uso real)" value="${row.periodo_uso || ''}" title="Periodo de uso: meses en los que se consumirá este monto">
-    <input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="Monto a usar (monto total para ese periodo)" value="${row.monto_a_usar || ''}" title="Monto a usar: monto total que quieres distribuir en el periodo de uso">
-    <input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Monto a colectar (calculado automáticamente)" value="${row.importe || ''}" title="Monto a colectar: resultado automático con la fórmula" readonly>
+    <div class="field field-sub"><label>Subcta</label><select class="select reparto-sub">${opts}</select></div>
+    <div class="field field-num"><label>Per. uso</label><input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Meses" value="${row.periodo_uso || ''}" title="Meses de uso"></div>
+    <div class="field field-num"><label>Monto uso</label><input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="0,00" value="${row.monto_a_usar || ''}" title="Monto total a usar"></div>
+    <div class="field field-num"><label>Monto col.</label><input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Auto" value="${row.importe || ''}" title="Monto a colectar" readonly></div>
     <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
-    <div class="reparto-help body-sm">Periodo de uso: meses de consumo. Monto a usar: objetivo total del periodo. Monto a colectar: calculado automáticamente con el periodo de colecta.</div>
   `;
   div.querySelector('.reparto-sub').addEventListener('change', e => {
     Estado.repRecDest[idx].subcuenta_id = e.target.value;
