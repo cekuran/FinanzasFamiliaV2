@@ -2839,6 +2839,8 @@ $('#txCancel').addEventListener('click', closeAllSheets);
 $('#formTx').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
+  const editingId = (Estado.editing && Estado.editing.id) ? Estado.editing.id : '';
+  const txId = (f.get('id') || editingId || '').trim();
   const recurrenteOn = $('#txRecurrenteSwitch').checked;
   const reparto = Estado.txTipo === 'transferencia'
     ? Estado.txRepartoDest
@@ -2852,7 +2854,7 @@ $('#formTx').addEventListener('submit', async (e) => {
         .filter(r => r.subcuenta_id && r.importe > 0)
     : [];
   const tx = {
-    id: f.get('id') || '',
+    id: txId,
     tipo: Estado.txTipo,
     importe: Number(f.get('importe')),
     fecha: f.get('fecha'),

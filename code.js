@@ -1009,7 +1009,9 @@ function escribirHoja(nombre, filas) {
 
 function upsertFila(nombre, fila) {
   const datos = leerHoja(nombre);
-  const idx = datos.findIndex(f => f.id === fila.id && f.owner === fila.owner);
+  const idx = nombre === 'Transacciones'
+    ? datos.findIndex(f => f.id === fila.id)
+    : datos.findIndex(f => f.id === fila.id && f.owner === fila.owner);
   if (idx >= 0) datos[idx] = Object.assign({}, datos[idx], fila);
   else datos.push(fila);
   escribirHoja(nombre, datos);
@@ -1017,7 +1019,9 @@ function upsertFila(nombre, fila) {
 }
 
 function eliminarFila(nombre, owner, id) {
-  const datos = leerHoja(nombre).filter(f => !(f.owner === owner && f.id === id));
+  const datos = nombre === 'Transacciones'
+    ? leerHoja(nombre).filter(f => f.id !== id)
+    : leerHoja(nombre).filter(f => !(f.owner === owner && f.id === id));
   escribirHoja(nombre, datos);
 }
 
@@ -1509,7 +1513,7 @@ function eliminarEstablecimiento(id) {
   if (!leerHoja('Establecimientos').some(e => e.owner === owner && e.id === establecimientoId)) {
     throw new Error('Establecimiento no encontrado');
   }
-  if (leerHoja('Transacciones').some(t => t.owner === owner && t.establecimiento_id === establecimientoId)) {
+  if (leerHoja('Transacciones').some(t => t.establecimiento_id === establecimientoId)) {
     throw new Error('No se puede eliminar: tiene movimientos asociados');
   }
   const usadoEnRecurrente = leerHoja('Recurrentes').some(r => {
@@ -1582,11 +1586,10 @@ function validarCategoriaPorTipo_(catsById, categoriaId, tipoEsperado, label) {
   }
 }
 
-function validarCategoriasTransferencia_(owner, tipoPresupuesto, categoriaId, reparto) {
+function validarCategoriasTransferencia_(tipoPresupuesto, categoriaId, reparto) {
   if (tipoPresupuesto !== 'gasto' && tipoPresupuesto !== 'ingreso') return;
   const catsById = {};
   leerHoja('Categorias')
-    .filter(c => c.owner === owner)
     .forEach(c => { catsById[c.id] = c; });
 
   if (reparto && reparto.length) {
@@ -1634,14 +1637,14 @@ function guardarTransaccion(tx) {
   const fecha = parseFecha(tx.fecha);
   if (!fecha) throw new Error('Fecha inválida');
   const txs = leerHoja('Transacciones');
-  const existente = tx.id ? txs.find(t => t.id === tx.id && t.owner === owner) : null;
+  const existente = tx.id ? txs.find(t => t.id === tx.id) : null;
   if (tx.id && !existente) throw new Error('Transacción no encontrada');
-  const ownerTx = owner;
-  const cuentasHoja = leerHoja('Cuentas').filter(c => c.owner === ownerTx);
+  const ownerTx = existente ? String(existente.owner || owner) : owner;
+  const cuentasHoja = leerHoja('Cuentas');
   let establecimiento_id = '';
   const establecimientoSolicitado = String(tx.establecimiento_id || '').trim();
   if (tipo !== 'transferencia' && establecimientoSolicitado) {
-    const valido = leerHoja('Establecimientos').some(e => e.owner === ownerTx && e.id === establecimientoSolicitado);
+    const valido = leerHoja('Establecimientos').some(e => e.id === establecimientoSolicitado);
     if (!valido) throw new Error('Establecimiento no encontrado');
     establecimiento_id = establecimientoSolicitado;
   }
@@ -1702,7 +1705,7 @@ function guardarTransaccion(tx) {
     const cuentasById = {};
     cuentasHoja.forEach(c => { cuentasById[c.id] = c; });
     const tipoPresupuesto = tipoTransferenciaPresupuesto_(cuentasById, tx.cuenta_id, tx.cuenta_destino_id);
-    validarCategoriasTransferencia_(ownerTx, tipoPresupuesto, tx.categoria_id || '', repartoDestinoNormalizado);
+    validarCategoriasTransferencia_(tipoPresupuesto, tx.categoria_id || '', repartoDestinoNormalizado);
   }
   const recExistenteId = existente ? (existente.recurrente_id || '') : '';
   const fila = {
@@ -1828,7 +1831,7 @@ function validarPlantillaRecurrente_(owner, plantilla) {
   if (p.tipo === 'transferencia') {
     p.establecimiento_id = '';
   } else if (establecimientoId) {
-    if (!leerHoja('Establecimientos').some(e => e.owner === owner && e.id === establecimientoId)) {
+    if (!leerHoja('Establecimientos').some(e => e.id === establecimientoId)) {
       throw new Error('Establecimiento no encontrado');
     }
     p.establecimiento_id = establecimientoId;
@@ -1842,7 +1845,7 @@ function validarPlantillaRecurrente_(owner, plantilla) {
     throw new Error('La cuenta destino no puede ser la misma que la cuenta origen');
   }
 
-  const cuentas = leerHoja('Cuentas').filter(c => c.owner === owner);
+  const cuentas = leerHoja('Cuentas');
   if (p.subcuenta_destino_id) {
     const sub = cuentas.find(c => c.id === p.subcuenta_destino_id && c.parent_id === p.cuenta_destino_id);
     if (!sub) throw new Error('Subcuenta destino no encontrada o no pertenece a la cuenta destino');
@@ -1866,7 +1869,7 @@ function validarPlantillaRecurrente_(owner, plantilla) {
   const cuentasById = {};
   cuentas.forEach(c => { cuentasById[c.id] = c; });
   const tipoPresupuesto = tipoTransferenciaPresupuesto_(cuentasById, p.cuenta_id, p.cuenta_destino_id);
-  validarCategoriasTransferencia_(owner, tipoPresupuesto, p.categoria_id || '', reparto);
+  validarCategoriasTransferencia_(tipoPresupuesto, p.categoria_id || '', reparto);
 
   if (p.ratio_conversion && !(Number(p.importe_destino) > 0)) {
     throw new Error('Falta importe destino o ratio de conversión');
