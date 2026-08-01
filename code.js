@@ -1522,7 +1522,18 @@ function parseRepartoDestino_(raw) {
   }
   if (!Array.isArray(parsed)) return [];
   return parsed
-    .map(r => ({ subcuenta_id: r && r.subcuenta_id, importe: Number(r && r.importe || 0), categoria_id: (r && r.categoria_id) || '' }))
+    .map(r => {
+      const out = {
+        subcuenta_id: r && r.subcuenta_id,
+        importe: Number(r && r.importe || 0),
+        categoria_id: (r && r.categoria_id) || ''
+      };
+      const periodoUso = Number(r && r.periodo_uso || 0);
+      const montoUsar = Number(r && r.monto_a_usar || 0);
+      if (periodoUso > 0) out.periodo_uso = periodoUso;
+      if (montoUsar > 0) out.monto_a_usar = montoUsar;
+      return out;
+    })
     .filter(r => r.subcuenta_id && r.importe > 0);
 }
 
@@ -1639,8 +1650,15 @@ function guardarTransaccion(tx) {
         if (visto.has(sid)) throw new Error('Subcuenta destino duplicada');
         const imp = Number(r.importe);
         if (!(imp > 0)) throw new Error('Importe de destino debe ser > 0');
+        const periodoUso = Number(r.periodo_uso || 0);
+        const montoUsar = Number(r.monto_a_usar || 0);
+        if (periodoUso < 0) throw new Error('Periodo de uso no puede ser negativo');
+        if (montoUsar < 0) throw new Error('Monto a usar no puede ser negativo');
         visto.add(sid);
-        normalizado.push({ subcuenta_id: sid, importe: imp, categoria_id: (r.categoria_id || '') });
+        const filaReparto = { subcuenta_id: sid, importe: imp, categoria_id: (r.categoria_id || '') };
+        if (periodoUso > 0) filaReparto.periodo_uso = periodoUso;
+        if (montoUsar > 0) filaReparto.monto_a_usar = montoUsar;
+        normalizado.push(filaReparto);
         suma += imp;
       });
       const totalEsperado = tx.importe_destino ? Number(tx.importe_destino) : Number(tx.importe);

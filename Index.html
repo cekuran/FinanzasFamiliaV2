@@ -472,6 +472,7 @@
   .reparto-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
   .reparto-row .select { flex: 2; }
   .reparto-row .input { flex: 1; }
+  .reparto-row .input.reparto-imp-auto { background: var(--surface-container-high); }
   .reparto-row .icon-btn { flex: 0; }
   .reparto-total-ok { color: var(--primary) !important; }
   .reparto-total-bad { color: var(--error) !important; }
@@ -2599,21 +2600,72 @@ function actualizarSubcuentasTx(preferred) {
 function parseRepartoFromTx_(tx) {
   if (!tx) return null;
   if (tx.reparto_destino && Array.isArray(tx.reparto_destino) && tx.reparto_destino.length) {
-    return tx.reparto_destino.map(r => ({ subcuenta_id: r.subcuenta_id, importe: Number(r.importe), categoria_id: r.categoria_id || '' }));
+    return tx.reparto_destino.map(r => ({
+      subcuenta_id: r.subcuenta_id,
+      importe: Number(r.importe),
+      categoria_id: r.categoria_id || '',
+      periodo_uso: Number(r.periodo_uso || 0),
+      monto_a_usar: Number(r.monto_a_usar || 0)
+    }));
   }
   if (typeof tx.reparto_destino === 'string' && tx.reparto_destino) {
     try {
       const parsed = JSON.parse(tx.reparto_destino);
       if (Array.isArray(parsed) && parsed.length) {
-        return parsed.map(r => ({ subcuenta_id: r.subcuenta_id, importe: Number(r.importe), categoria_id: r.categoria_id || '' }));
+        return parsed.map(r => ({
+          subcuenta_id: r.subcuenta_id,
+          importe: Number(r.importe),
+          categoria_id: r.categoria_id || '',
+          periodo_uso: Number(r.periodo_uso || 0),
+          monto_a_usar: Number(r.monto_a_usar || 0)
+        }));
       }
     } catch (e) { /* ignore */ }
   }
   // Legacy: una sola subcuenta destino con importe = importe_destino || importe.
   if (tx.subcuenta_destino_id) {
-    return [{ subcuenta_id: tx.subcuenta_destino_id, importe: Number(tx.importe_destino || tx.importe || 0), categoria_id: '' }];
+    return [{
+      subcuenta_id: tx.subcuenta_destino_id,
+      importe: Number(tx.importe_destino || tx.importe || 0),
+      categoria_id: '',
+      periodo_uso: 0,
+      monto_a_usar: 0
+    }];
   }
   return null;
+}
+
+function montoColectarDesdeUso_(periodoUso, montoSubcuenta, periodoColecta) {
+  const perUso = Number(periodoUso || 0);
+  const monto = Number(montoSubcuenta || 0);
+  const perColecta = Number(periodoColecta || 0);
+  if (!(perUso > 0) || !(monto > 0) || !(perColecta > 0)) return 0;
+  return (perUso * monto) / perColecta;
+}
+
+function isTransferenciaRecurrenteTx_() {
+  const sw = $('#txRecurrenteSwitch');
+  return Estado.txTipo === 'transferencia' && !!(sw && sw.checked);
+}
+
+function normalizarFilaRepartoRecurrenteTx_(row) {
+  if (!row) return;
+  const periodoColecta = Number($('#txRecPeriodoMeses').value || 1);
+  const periodoUso = Number(row.periodo_uso || periodoColecta || 1);
+  const montoUsar = Number(row.monto_a_usar || row.importe || 0);
+  row.periodo_uso = periodoUso > 0 ? periodoUso : 1;
+  row.monto_a_usar = montoUsar > 0 ? montoUsar : 0;
+  row.importe = Number(montoColectarDesdeUso_(row.periodo_uso, row.monto_a_usar, periodoColecta).toFixed(2));
+}
+
+function syncImporteTxDesdeRepartoRecurrente_() {
+  if (!isTransferenciaRecurrenteTx_()) return;
+  Estado.txRepartoDest.forEach(normalizarFilaRepartoRecurrenteTx_);
+  const suma = Estado.txRepartoDest.reduce((s, r) => s + Number(r.importe || 0), 0);
+  if (suma > 0) {
+    $('#txImporte').value = suma.toFixed(2);
+    syncDestino();
+  }
 }
 
 function renderRepartoRows(subsD, rows) {
@@ -2632,26 +2684,62 @@ function renderRepartoRows(subsD, rows) {
 function buildRepartoRow(subsD, row, idx) {
   const div = document.createElement('div');
   div.className = 'reparto-row';
+  const recurrenteTransfer = isTransferenciaRecurrenteTx_();
+  if (recurrenteTransfer) normalizarFilaRepartoRecurrenteTx_(row);
   const opts = '<option value="">— Subcuenta —</option>' + subsD.map(s =>
     `<option value="${s.id}" ${s.id === row.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
   ).join('');
   const catOpts = '<option value="">— Categoría —</option>' + categoriasTransferenciaSegunDireccion_($('#txCuenta').value, $('#txCuentaDest').value).map(c =>
     `<option value="${c.id}" ${c.id === row.categoria_id ? 'selected' : ''}>${escape(c.nombre)}</option>`
   ).join('');
-  div.innerHTML = `
-    <select class="select reparto-sub">${opts}</select>
-    <input class="input reparto-imp" type="number" step="0.01" min="0" placeholder="0,00" value="${row.importe || ''}">
-    <select class="select reparto-cat">${catOpts}</select>
-    <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
-  `;
+  if (recurrenteTransfer) {
+    div.innerHTML = `
+      <select class="select reparto-sub">${opts}</select>
+      <input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Periodo uso" value="${row.periodo_uso || ''}">
+      <input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="Monto a usar" value="${row.monto_a_usar || ''}">
+      <input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Monto a colectar" value="${row.importe || ''}" readonly>
+      <select class="select reparto-cat">${catOpts}</select>
+      <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
+    `;
+  } else {
+    div.innerHTML = `
+      <select class="select reparto-sub">${opts}</select>
+      <input class="input reparto-imp" type="number" step="0.01" min="0" placeholder="0,00" value="${row.importe || ''}">
+      <select class="select reparto-cat">${catOpts}</select>
+      <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
+    `;
+  }
   div.querySelector('.reparto-sub').addEventListener('change', e => {
     Estado.txRepartoDest[idx].subcuenta_id = e.target.value;
     actualizarTotalReparto();
   });
-  div.querySelector('.reparto-imp').addEventListener('input', e => {
-    Estado.txRepartoDest[idx].importe = Number(e.target.value || 0);
-    actualizarTotalReparto();
-  });
+  const inputImporte = div.querySelector('.reparto-imp');
+  if (inputImporte && !recurrenteTransfer) {
+    inputImporte.addEventListener('input', e => {
+      Estado.txRepartoDest[idx].importe = Number(e.target.value || 0);
+      actualizarTotalReparto();
+    });
+  }
+  const inputPeriodoUso = div.querySelector('.reparto-periodo-uso');
+  if (inputPeriodoUso) {
+    inputPeriodoUso.addEventListener('input', e => {
+      Estado.txRepartoDest[idx].periodo_uso = Number(e.target.value || 0);
+      normalizarFilaRepartoRecurrenteTx_(Estado.txRepartoDest[idx]);
+      const out = div.querySelector('.reparto-imp');
+      if (out) out.value = Estado.txRepartoDest[idx].importe || '';
+      actualizarTotalReparto();
+    });
+  }
+  const inputMontoUsar = div.querySelector('.reparto-monto-usar');
+  if (inputMontoUsar) {
+    inputMontoUsar.addEventListener('input', e => {
+      Estado.txRepartoDest[idx].monto_a_usar = Number(e.target.value || 0);
+      normalizarFilaRepartoRecurrenteTx_(Estado.txRepartoDest[idx]);
+      const out = div.querySelector('.reparto-imp');
+      if (out) out.value = Estado.txRepartoDest[idx].importe || '';
+      actualizarTotalReparto();
+    });
+  }
   div.querySelector('.reparto-cat').addEventListener('change', e => {
     Estado.txRepartoDest[idx].categoria_id = e.target.value;
   });
@@ -2667,7 +2755,7 @@ function addRepartoRow() {
   const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#txCuentaDest').value);
   const subsD = (ctaD && ctaD.subcuentas) || [];
   if (!subsD.length) { toast('La cuenta destino no tiene subcuentas'); return; }
-  Estado.txRepartoDest.push({ subcuenta_id: '', importe: 0, categoria_id: '' });
+  Estado.txRepartoDest.push({ subcuenta_id: '', importe: 0, categoria_id: '', periodo_uso: Number($('#txRecPeriodoMeses').value || 1), monto_a_usar: 0 });
   renderRepartoRows(subsD, Estado.txRepartoDest);
   actualizarTotalReparto();
 }
@@ -2697,6 +2785,9 @@ function updateConversionHint() {
 }
 
 function actualizarTotalReparto() {
+  if (isTransferenciaRecurrenteTx_()) {
+    syncImporteTxDesdeRepartoRecurrente_();
+  }
   const total = destinoTotalTx_();
   const suma = Estado.txRepartoDest.reduce((s, r) => s + Number(r.importe || 0), 0);
   const el = $('#repartoDestTotal');
@@ -2717,6 +2808,16 @@ $('#txImporteDest').addEventListener('input', actualizarTotalReparto);
 $('#txRatio').addEventListener('input', () => { syncDestino(); actualizarTotalReparto(); });
 $('#txRecurrenteSwitch').addEventListener('change', e => {
   $('#wrapRecurrente').style.display = e.target.checked ? 'flex' : 'none';
+  actualizarSubcuentasTx();
+  actualizarTotalReparto();
+});
+$('#txRecPeriodoMeses').addEventListener('input', () => {
+  if (!isTransferenciaRecurrenteTx_()) return;
+  const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#txCuentaDest').value);
+  const subsD = (ctaD && ctaD.subcuentas) || [];
+  syncImporteTxDesdeRepartoRecurrente_();
+  renderRepartoRows(subsD, Estado.txRepartoDest);
+  actualizarTotalReparto();
 });
 $('#txCancel').addEventListener('click', closeAllSheets);
 $('#formTx').addEventListener('submit', async (e) => {
@@ -2725,7 +2826,13 @@ $('#formTx').addEventListener('submit', async (e) => {
   const recurrenteOn = $('#txRecurrenteSwitch').checked;
   const reparto = Estado.txTipo === 'transferencia'
     ? Estado.txRepartoDest
-        .map(r => ({ subcuenta_id: r.subcuenta_id, importe: Number(r.importe || 0), categoria_id: r.categoria_id || '' }))
+        .map(r => ({
+          subcuenta_id: r.subcuenta_id,
+          importe: Number(r.importe || 0),
+          categoria_id: r.categoria_id || '',
+          periodo_uso: Number(r.periodo_uso || 0),
+          monto_a_usar: Number(r.monto_a_usar || 0)
+        }))
         .filter(r => r.subcuenta_id && r.importe > 0)
     : [];
   const tx = {
@@ -3221,20 +3328,33 @@ function renderRepartoRowsRec(subsD, rows) {
 function buildRepartoRowRec(subsD, row, idx) {
   const div = document.createElement('div');
   div.className = 'reparto-row';
+  normalizarFilaRepartoRecurrenteRec_(row);
   const opts = '<option value="">— Subcuenta —</option>' + subsD.map(s =>
     `<option value="${s.id}" ${s.id === row.subcuenta_id ? 'selected' : ''}>${escape(s.nombre)}</option>`
   ).join('');
   div.innerHTML = `
     <select class="select reparto-sub">${opts}</select>
-    <input class="input reparto-imp" type="number" step="0.01" min="0" placeholder="0,00" value="${row.importe || ''}">
+    <input class="input reparto-periodo-uso" type="number" step="1" min="1" placeholder="Periodo uso" value="${row.periodo_uso || ''}">
+    <input class="input reparto-monto-usar" type="number" step="0.01" min="0" placeholder="Monto a usar" value="${row.monto_a_usar || ''}">
+    <input class="input reparto-imp reparto-imp-auto" type="number" step="0.01" min="0" placeholder="Monto a colectar" value="${row.importe || ''}" readonly>
     <button type="button" class="icon-btn reparto-remove" title="Quitar destino">×</button>
   `;
   div.querySelector('.reparto-sub').addEventListener('change', e => {
     Estado.repRecDest[idx].subcuenta_id = e.target.value;
     actualizarTotalRepartoRec();
   });
-  div.querySelector('.reparto-imp').addEventListener('input', e => {
-    Estado.repRecDest[idx].importe = Number(e.target.value || 0);
+  div.querySelector('.reparto-periodo-uso').addEventListener('input', e => {
+    Estado.repRecDest[idx].periodo_uso = Number(e.target.value || 0);
+    normalizarFilaRepartoRecurrenteRec_(Estado.repRecDest[idx]);
+    const out = div.querySelector('.reparto-imp');
+    if (out) out.value = Estado.repRecDest[idx].importe || '';
+    actualizarTotalRepartoRec();
+  });
+  div.querySelector('.reparto-monto-usar').addEventListener('input', e => {
+    Estado.repRecDest[idx].monto_a_usar = Number(e.target.value || 0);
+    normalizarFilaRepartoRecurrenteRec_(Estado.repRecDest[idx]);
+    const out = div.querySelector('.reparto-imp');
+    if (out) out.value = Estado.repRecDest[idx].importe || '';
     actualizarTotalRepartoRec();
   });
   div.querySelector('.reparto-remove').addEventListener('click', () => {
@@ -3252,7 +3372,7 @@ function addRepartoRowRec() {
   const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#recCuentaDest').value);
   const subsD = (ctaD && ctaD.subcuentas) || [];
   if (!subsD.length) { toast('La cuenta destino no tiene subcuentas'); return; }
-  Estado.repRecDest.push({ subcuenta_id: '', importe: 0, categoria_id: '' });
+  Estado.repRecDest.push({ subcuenta_id: '', importe: 0, categoria_id: '', periodo_uso: Number($('#recPer').value || 1), monto_a_usar: 0 });
   renderRepartoRowsRec(subsD, Estado.repRecDest);
   actualizarTotalRepartoRec();
   // ponytail: dropdown y reparto son excluyentes. Al añadir un destino se
@@ -3266,7 +3386,28 @@ function destinoTotalRec_() {
   if (ratio > 0 && impDest > 0) return impDest;
   return Number($('#recImporte').value || 0);
 }
+
+function normalizarFilaRepartoRecurrenteRec_(row) {
+  if (!row) return;
+  const periodoColecta = Number($('#recPer').value || 1);
+  const periodoUso = Number(row.periodo_uso || periodoColecta || 1);
+  const montoUsar = Number(row.monto_a_usar || row.importe || 0);
+  row.periodo_uso = periodoUso > 0 ? periodoUso : 1;
+  row.monto_a_usar = montoUsar > 0 ? montoUsar : 0;
+  row.importe = Number(montoColectarDesdeUso_(row.periodo_uso, row.monto_a_usar, periodoColecta).toFixed(2));
+}
+
+function syncImporteRecDesdeReparto_() {
+  if ($('#recTipo').value !== 'transferencia') return;
+  Estado.repRecDest.forEach(normalizarFilaRepartoRecurrenteRec_);
+  const suma = Estado.repRecDest.reduce((s, r) => s + Number(r.importe || 0), 0);
+  if (suma > 0) {
+    $('#recImporte').value = suma.toFixed(2);
+  }
+}
+
 function actualizarTotalRepartoRec() {
+  syncImporteRecDesdeReparto_();
   const total = destinoTotalRec_();
   const suma = Estado.repRecDest.reduce((s, r) => s + Number(r.importe || 0), 0);
   const el = $('#recRepartoTotal');
@@ -3409,6 +3550,14 @@ $('#recCuenta').addEventListener('change', () => {
 $('#recCuentaDest').addEventListener('change', () => {
   actualizarDestinoRecurrente({ keepCurrent: true });
   poblarCategoriasRecurrente($('#recTipo').value, $('#recCat').value, $('#recCuenta').value, $('#recCuentaDest').value);
+});
+$('#recPer').addEventListener('input', () => {
+  if ($('#recTipo').value !== 'transferencia') return;
+  const ctaD = Estado.bootstrap.cuentas.find(c => c.id === $('#recCuentaDest').value);
+  const subsD = (ctaD && ctaD.subcuentas) || [];
+  syncImporteRecDesdeReparto_();
+  renderRepartoRowsRec(subsD, Estado.repRecDest);
+  actualizarTotalRepartoRec();
 });
 $('#formRec').addEventListener('submit', async (e) => {
   e.preventDefault();
